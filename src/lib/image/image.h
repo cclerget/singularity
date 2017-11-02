@@ -36,6 +36,7 @@ struct image_object {
     int fd;
     int type;
     int writable;
+    int cloexec;
 };
 
 extern struct image_object singularity_image_init(char *path, int open_flags);

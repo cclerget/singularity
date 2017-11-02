@@ -70,6 +70,7 @@ int _singularity_image_ext3_init(struct image_object *image, int open_flags) {
     FILE *image_fp;
     static char buf[2048];
     struct extfs_info *einfo;
+    struct flock lock;
 
     singularity_message(DEBUG, "Opening file descriptor to image: %s\n", image->path);
     if ( ( image_fd = open(image->path, open_flags, 0755) ) < 0 ) {
@@ -126,6 +127,21 @@ int _singularity_image_ext3_init(struct image_object *image, int open_flags) {
     }
 
     image->fd = image_fd;
+
+    if ( image->writable ) {
+        /* don't close image file descriptor on exec since we want to keep advisory lock on image */
+        image->cloexec = 0;
+
+        /* writable images are not safe when used by multiple instances */
+        lock.l_type = F_WRLCK;
+        lock.l_whence = SEEK_SET;
+        lock.l_start = 0;
+        lock.l_len = 0;
+        if ( fcntl(image_fd, F_SETLK, &lock) < 0 ) {
+            singularity_message(ERROR, "Image %s is already used by another instance\n", image->path);
+            ABORT(255);
+        }
+    }
 
     return(0);
 }

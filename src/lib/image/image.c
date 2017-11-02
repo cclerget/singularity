@@ -70,6 +70,7 @@ struct image_object singularity_image_init(char *path, int open_flags) {
     image.fd = -1;
     image.loopdev = NULL;
     image.offset = 0;
+    image.cloexec = 1;
 
     if ( open_flags & ( O_RDWR | O_WRONLY ) ) {
         image.writable = 1;
@@ -108,9 +109,11 @@ struct image_object singularity_image_init(char *path, int open_flags) {
         ABORT(255);
     }
 
-    if ( fcntl(image.fd, F_SETFD, FD_CLOEXEC) != 0 ) {
-        singularity_message(ERROR, "Failed to set CLOEXEC on image file descriptor\n");
-        ABORT(255);
+    if ( image.cloexec == 1 ) {
+        if ( fcntl(image.fd, F_SETFD, FD_CLOEXEC) != 0 ) {
+            singularity_message(ERROR, "Failed to set CLOEXEC on image file descriptor\n");
+            ABORT(255);
+        }
     }
 
     if ( ( singularity_suid_enabled() >= 0 ) && ( singularity_priv_getuid() != 0 ) ) {

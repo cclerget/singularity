@@ -45,6 +45,7 @@
 int _singularity_image_ext3_mount(struct image_object *image, char *mount_point) {
     int opts = MS_NOSUID;
     char *loop_dev;
+    char *ext_options = NULL;
 
     if ( ( loop_dev = singularity_image_bind(image) ) == NULL ) {
         singularity_message(ERROR, "Could not obtain the image loop device\n");
@@ -59,16 +60,20 @@ int _singularity_image_ext3_mount(struct image_object *image, char *mount_point)
     if ( image->writable <= 0 ) {
         singularity_message(DEBUG, "Adding MS_RDONLY to mount options\n");
         opts |= MS_RDONLY;
-
+        ext_options = strdup("errors=remount-ro,norecovery");
+    } else {
+        ext_options = strdup("errors=remount-ro");
     }
 
     singularity_priv_escalate();
     singularity_message(VERBOSE, "Mounting '%s' to: '%s'\n", loop_dev, mount_point);
-    if ( mount(loop_dev, mount_point, "ext3", opts, "errors=remount-ro") < 0 ) {
+    if ( mount(loop_dev, mount_point, "ext3", opts, ext_options) < 0 ) {
         singularity_message(ERROR, "Failed to mount ext3 image: %s\n", strerror(errno));
         ABORT(255);
     }
     singularity_priv_drop();
+
+    free(ext_options);
 
     return(0);
 }
