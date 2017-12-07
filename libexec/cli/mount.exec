@@ -87,10 +87,10 @@ shift
 
 if [ -z "${SINGULARITY_NOSUID:-}" -a -u "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" ]; then
     exec "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" "$@"
-elif [ -x "$SINGULARITY_libexecdir/singularity/bin/mount" ]; then
-    exec "$SINGULARITY_libexecdir/singularity/bin/mount" "$@"
+elif [ -x "$SINGULARITY_libexecdir/singularity/bin/wrapper" ]; then
+    exec "$SINGULARITY_libexecdir/singularity/bin/wrapper" "$@"
 else
-    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/mount\n"
+    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/wrapper\n"
     exit 1
 fi
 

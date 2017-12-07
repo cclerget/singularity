@@ -35,6 +35,7 @@
 #include <grp.h>
 #include <limits.h>
 #include <sched.h>
+#include <signal.h>
 
 #include "config.h"
 
@@ -311,11 +312,25 @@ void singularity_priv_drop(void) {
 }
 
 void singularity_priv_drop_perm(void) {
+    int death_signal = 0;
+
     singularity_message(DEBUG, "Called singularity_priv_drop_perm(void)\n");
 
     if ( uinfo.ready != 1 ) {
         singularity_message(ERROR, "User info is not available\n");
         ABORT(255);
+    }
+
+    if ( prctl(PR_GET_PDEATHSIG, &death_signal) < 0 ) {
+        singularity_message(ERROR, "Could not retrieve parent death signal\n");
+        ABORT(255);
+    }
+
+    if ( death_signal == 0 ) {
+        if ( prctl(PR_SET_PDEATHSIG, SIGQUIT) < 0 ) {
+            singularity_message(ERROR, "Could not set parent death signal\n");
+            ABORT(255);
+        }
     }
 
     if ( uinfo.userns == 1 ) {

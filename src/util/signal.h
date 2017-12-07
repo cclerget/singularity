@@ -15,6 +15,5 @@ void singularity_install_signal_handler();
 int singularity_handle_signals(siginfo_t *siginfo);
 
 void singularity_unblock_signals();
-    
 
 #endif

@@ -218,7 +218,7 @@ static void singularity_capability_set_securebits(int bits) {
         }
 
         if ( prctl(PR_SET_SECUREBITS, bits) < 0 ) {
-            singularity_message(ERROR, "Failed to set securebits\n");
+            singularity_message(ERROR, "Failed to set securebits: %s\n", strerror(errno));
             ABORT(255);
         }
     }
@@ -228,38 +228,7 @@ void singularity_capability_keep(void) {
     singularity_capability_set_securebits(SECBIT_NO_SETUID_FIXUP);
 }
 
-void singularity_capability_set_effective(void) {
-    struct __user_cap_header_struct header;
-    struct __user_cap_data_struct data[2];
-
-    singularity_message(DEBUG, "Set effective/permitted capabilities for current processus\n");
-
-    header.version = LINUX_CAPABILITY_VERSION;
-    header.pid = getpid();
-
-    if ( capget(&header, data) < 0 ) {
-        singularity_message(ERROR, "Failed to get processus capabilities\n");
-        ABORT(255);
-    }
-
-#ifdef USER_CAPABILITIES
-    data[1].permitted = data[1].inheritable;
-    data[0].permitted = data[0].inheritable;
-
-    data[1].effective = 0;
-    data[0].effective = 0;
-#else
-    data[1].permitted = data[1].effective = data[1].inheritable;
-    data[0].permitted = data[0].effective = data[0].inheritable;
-#endif
-
-    if ( capset(&header, data) < 0 ) {
-        singularity_message(ERROR, "Failed to set processus capabilities\n");
-        ABORT(255);
-    }
-}
-
-static void singularity_capability_set(unsigned long long capabilities) {
+static void singularity_capability_set(unsigned long long capabilities, int init) {
     __u32 caps_index;
     __u32 last_cap;
     struct __user_cap_header_struct header;
@@ -268,7 +237,7 @@ static void singularity_capability_set(unsigned long long capabilities) {
     singularity_message(DEBUG, "Entering in a restricted capability set\n");
 
     header.version = LINUX_CAPABILITY_VERSION;
-    header.pid = getpid();
+    header.pid = 0;
 
     if ( capget(&header, data) < 0 ) {
         singularity_message(ERROR, "Failed to get processus capabilities\n");
@@ -299,17 +268,17 @@ static void singularity_capability_set(unsigned long long capabilities) {
         }
     }
 
-    data[1].inheritable = (__u32)(capabilities >> 32);
-    data[0].inheritable = (__u32)(capabilities & 0xFFFFFFFF);
+    data[1].effective = data[1].permitted = data[1].inheritable = (__u32)(capabilities >> 32);
+    data[0].effective = data[0].permitted = data[0].inheritable = (__u32)(capabilities & 0xFFFFFFFF);
 
     if ( capset(&header, data) < 0 ) {
-        singularity_message(ERROR, "Failed to set processus capabilities\n");
+        singularity_message(ERROR, "Failed to set processus capabilities: %s\n", strerror(errno));
         ABORT(255);
     }
 
 #ifdef USER_CAPABILITIES
     // set ambient capabilities if supported
-    if ( singularity_config_get_bool(ALLOW_USER_CAPABILITIES) ) {
+    if ( singularity_config_get_bool(ALLOW_USER_CAPABILITIES) && init ) {
         int i;
         for (i = 0; i <= CAPSET_MAX; i++ ) {
             if ( (capabilities & (1ULL << i)) ) {
@@ -413,14 +382,13 @@ static unsigned long long setup_user_capabilities(void) {
         caps |= get_group_file_capabilities();
         caps = tcaps & caps;
         singularity_registry_set("ADD_CAPS", cap2str(caps));
-        envar_set("SINGULARITY_ADD_CAPS", singularity_registry_get("ADD_CAPS"), 1);
     } else {
-        envar_set("SINGULARITY_ADD_CAPS", "0", 1);
+        singularity_registry_set("ADD_CAPS", "0");
     }
 #else
     if ( singularity_config_get_bool(ALLOW_USER_CAPABILITIES) ) {
         singularity_message(WARNING, "User capabilities are not supported by your kernel\n");
-        envar_set("SINGULARITY_ADD_CAPS", "0", 1);
+        singularity_registry_set("ADD_CAPS", "0");
     }
 #endif
 
@@ -433,12 +401,8 @@ static int setup_capabilities(void) {
     if ( singularity_priv_getuid() == 0 ) {
         if ( singularity_config_get_bool(ALLOW_ROOT_CAPABILITIES) <= 0 ) {
             singularity_registry_set("ADD_CAPS", NULL);
-            unsetenv("SINGULARITY_ADD_CAPS");
-            unsetenv("SINGULARITY_DROP_CAPS");
             singularity_registry_set("DROP_CAPS", NULL);
-            unsetenv("SINGULARITY_NO_PRIVS");
             singularity_registry_set("NO_PRIVS", NULL);
-            unsetenv("SINGULARITY_KEEP_PRIVS");
             singularity_registry_set("KEEP_PRIVS", NULL);
         }
 
@@ -446,20 +410,11 @@ static int setup_capabilities(void) {
             singularity_message(WARNING, "root default capabilities value in configuration is unknown, set to no\n");
             singularity_registry_set("NO_PRIVS", "1");
             singularity_registry_set("KEEP_PRIVS", NULL);
-
-            unsetenv("SINGULARITY_KEEP_PRIVS");
-            envar_set("SINGULARITY_NO_PRIVS", "1", 1);
         } else if ( root_default_caps == ROOT_DEFCAPS_FULL || singularity_capability_keep_privs() ) {
             unsigned long long caps = get_current_capabilities();
             if ( singularity_registry_get("NO_PRIVS") == NULL ) {
                 singularity_registry_set("KEEP_PRIVS", "1");
-                envar_set("SINGULARITY_KEEP_PRIVS", "1", 1);
                 singularity_registry_set("ADD_CAPS", cap2str(caps));
-                envar_set("SINGULARITY_ADD_CAPS", singularity_registry_get("ADD_CAPS"), 1);
-            } else {
-                envar_set("SINGULARITY_NO_PRIVS", "1", 1);
-                unsetenv("SINGULARITY_KEEP_PRIVS");
-                envar_set("SINGULARITY_ADD_CAPS", singularity_registry_get("ADD_CAPS"), 1);
             }
         } else if ( root_default_caps == ROOT_DEFCAPS_FILE ) {
             unsigned long long filecap = get_user_file_capabilities();
@@ -474,23 +429,22 @@ static int setup_capabilities(void) {
                     singularity_registry_set("ADD_CAPS", cap2str(envcap | filecap));
                 }
             }
-            envar_set("SINGULARITY_ADD_CAPS", singularity_registry_get("ADD_CAPS"), 1);
-
             if ( ! singularity_capability_keep_privs() ) {
                 singularity_registry_set("NO_PRIVS", "1");
-                envar_set("SINGULARITY_NO_PRIVS", "1", 1);
             }
         } else if ( root_default_caps == ROOT_DEFCAPS_NO ) {
             if ( ! singularity_capability_keep_privs() ) {
                 singularity_registry_set("NO_PRIVS", "1");
-                envar_set("SINGULARITY_NO_PRIVS", "1", 1);
             }
+        } else {
+            singularity_registry_set("KEEP_PRIVS", "1");
+            singularity_registry_set("ADD_CAPS", cap2str(array2cap(default_capabilities)));
         }
     } else {
         setup_user_capabilities();
     }
 
-    envar_set("SINGULARITY_ROOT_DEFAULT_CAPS", int2str(root_default_caps), 1);
+    singularity_registry_set("ROOT_DEFAULT_CAPS", int2str(root_default_caps));
     return(root_default_caps);
 }
 
@@ -502,17 +456,18 @@ void singularity_capability_init(void) {
             unsigned long long capabilities = str2cap(singularity_registry_get("ADD_CAPS"));
             unsigned long long final = array2cap(default_capabilities) | capabilities;
 
-            singularity_capability_set(final);
+            singularity_capability_set(final, 1);
         } else {
-            singularity_capability_set(array2cap(default_capabilities));
+            singularity_capability_set(array2cap(default_capabilities), 1);
         }
     }
 }
 
 /* for mount command */
 void singularity_capability_init_default(void) {
-    singularity_capability_set(array2cap(default_capabilities));
-    envar_set("SINGULARITY_ROOT_DEFAULT_CAPS", int2str(ROOT_DEFCAPS_DEFAULT), 1);
+    singularity_capability_set(array2cap(default_capabilities), 1);
+    singularity_registry_set("NO_PRIVS", "1");
+    singularity_registry_set("ADD_CAPS", cap2str(array2cap(default_capabilities)));
     unsetenv("SINGULARITY_ADD_CAPS");
     unsetenv("SINGULARITY_DROP_CAPS");
     unsetenv("SINGULARITY_NO_PRIVS");
@@ -521,7 +476,7 @@ void singularity_capability_init_default(void) {
 
 /* for build stage 2 */
 void singularity_capability_init_minimal(void) {
-    singularity_capability_set(array2cap(minimal_capabilities));
+    singularity_capability_set(array2cap(minimal_capabilities), 1);
     unsetenv("SINGULARITY_ADD_CAPS");
     unsetenv("SINGULARITY_DROP_CAPS");
     unsetenv("SINGULARITY_NO_PRIVS");
@@ -529,37 +484,26 @@ void singularity_capability_init_minimal(void) {
 }
 
 void singularity_capability_drop(void) {
-    long int root_default_caps;
+    unsigned long long final_caps = 0;
     int root_user = (singularity_priv_getuid() == 0) ? 1 : 0;
 
     if ( singularity_registry_get("ROOT_DEFAULT_CAPS") == NULL ) {
-        root_default_caps = setup_capabilities();
-    } else {
-        if ( str2int(singularity_registry_get("ROOT_DEFAULT_CAPS"), &root_default_caps) == -1 ) {
-            singularity_message(ERROR, "Failed to get root default capabilities via environment variable\n");
-            ABORT(255);
-        }
+        setup_capabilities();
     }
 
     if ( singularity_capability_keep_privs() ) {
-        unsigned long long capabilities = str2cap(singularity_registry_get("ADD_CAPS"));
-        singularity_capability_set(capabilities);
+        final_caps = str2cap(singularity_registry_get("ADD_CAPS"));
     }
 
     if ( singularity_capability_no_privs() || ( ! singularity_capability_keep_privs() && ! root_user ) ) {
         singularity_message(DEBUG, "Set capabilities\n");
-        unsigned long long capabilities = str2cap(singularity_registry_get("ADD_CAPS"));
-        singularity_capability_set(capabilities);
+        final_caps = str2cap(singularity_registry_get("ADD_CAPS"));
     }
     if ( singularity_registry_get("DROP_CAPS") ) {
         singularity_message(DEBUG, "Drop capabilities requested by user\n");
         unsigned long long capabilities = str2cap(singularity_registry_get("DROP_CAPS"));
-        unsigned long long current = get_current_capabilities();
-
-        current &= ~capabilities;
-
-        singularity_capability_set(current);
+        final_caps &= ~capabilities;
     }
     singularity_capability_set_securebits(SECURE_ALL_BITS|SECURE_ALL_LOCKS);
-    singularity_capability_set_effective();
+    singularity_capability_set(final_caps, 0);
 }

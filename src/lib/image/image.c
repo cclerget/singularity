@@ -115,6 +115,11 @@ struct image_object singularity_image_init(char *path, int open_flags) {
         ABORT(255);
     }
 
+    if ( singularity_priv_userns_enabled() && image.type != DIRECTORY ) {
+        singularity_message(ERROR, "User namespace use directory image only\n");
+        ABORT(255);
+    }
+
     if ( fcntl(image.fd, F_SETFD, FD_CLOEXEC) != 0 ) {
         singularity_message(ERROR, "Failed to set CLOEXEC on image file descriptor\n");
         ABORT(255);

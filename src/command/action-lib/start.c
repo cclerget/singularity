@@ -50,23 +50,13 @@
 
 int started = 0;
 
-int main(int argc, char **argv) {
+int start_main(int argc, char **argv) {
     int i, cleanupd_fd;
     struct tempfile *stdout_log, *stderr_log, *singularity_debug;
     struct image_object image;
     pid_t child;
     siginfo_t siginfo;
     struct stat filestat;
-
-    singularity_config_init();
-
-    singularity_suid_init();
-    singularity_priv_init();
-
-    singularity_registry_init();
-    singularity_priv_drop();
-
-    singularity_runtime_autofs();
 
     singularity_registry_set("UNSHARE_PID", "1");
     singularity_registry_set("UNSHARE_IPC", "1");

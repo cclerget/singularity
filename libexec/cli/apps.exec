@@ -68,11 +68,11 @@ shift
 if [ -z "${SINGULARITY_NOSUID:-}" -a -u "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" ]; then
     eval "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/apps/list.sh"
     RETVAL=$?
-elif [ -x "$SINGULARITY_libexecdir/singularity/bin/mount" ]; then
-    eval "$SINGULARITY_libexecdir/singularity/bin/mount" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/apps/list.sh"
+elif [ -x "$SINGULARITY_libexecdir/singularity/bin/wrapper" ]; then
+    eval "$SINGULARITY_libexecdir/singularity/bin/wrapper" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/apps/list.sh"
     RETVAL=$?
 else
-    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/mount\n"
+    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/wrapper\n"
     exit 1
 fi
 

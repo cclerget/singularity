@@ -434,7 +434,8 @@ AC_CONFIG_FILES([
    src/lib/image/sif/Makefile
    src/lib/sif/Makefile
    src/lib/signing/Makefile
-   src/action-lib/Makefile
+   src/command/Makefile
+   src/command/action-lib/Makefile
    src/bootstrap-lib/Makefile
    src/util/Makefile
    src/util/config_defaults.h

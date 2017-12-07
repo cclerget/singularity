@@ -38,6 +38,7 @@
 #include "util/message.h"
 #include "util/registry.h"
 #include "util/config_parser.h"
+#include "util/daemon.h"
 
 #include "./ipc/ipc.h"
 #include "./mnt/mnt.h"
@@ -81,7 +82,13 @@ int _singularity_runtime_ns(unsigned int flags) {
 
 int _singularity_runtime_ns_join(unsigned int flags) {
     int retval = 0;
-    int ns_fd = atoi(singularity_registry_get("DAEMON_NS_FD"));
+    int ns_fd;
+
+    if ( singularity_registry_get("DAEMON_NS_FD") == NULL ) {
+        singularity_daemon_init();
+    }
+
+    ns_fd = atoi(singularity_registry_get("DAEMON_NS_FD"));
 
     if ( flags & SR_NS_USER ) {
         singularity_message(DEBUG, "Calling: _singularity_runtime_ns_user_join()\n");
@@ -107,8 +114,6 @@ int _singularity_runtime_ns_join(unsigned int flags) {
         singularity_message(DEBUG, "Calling: _singularity_runtime_ns_mnt_join()\n");
         retval += _singularity_runtime_ns_mnt_join(ns_fd);
     }
-
-    close(ns_fd);
 
     return(retval);
 }

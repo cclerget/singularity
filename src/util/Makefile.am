@@ -8,8 +8,6 @@ AM_CPPFLAGS = -DSYSCONFDIR=\"$(sysconfdir)\" -DLOCALSTATEDIR=\"$(localstatedir)\
 
 EXTRA_DIST = capability.c \
 			 capability.h \
-			 cleanupd.c \
-			 cleanupd.h \
 			 config_parser.c \
 			 config_parser.h \
 			 daemon.c \

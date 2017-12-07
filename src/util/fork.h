@@ -64,4 +64,6 @@
     void singularity_wait_for_go_ahead();
 
 
+    int fork_ns(unsigned int flags);
+
 #endif /* __SINGULARITY_FORK_H_ */

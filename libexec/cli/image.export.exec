@@ -84,10 +84,10 @@ fi
 
 if [ -z "${SINGULARITY_NOSUID:-}" -a -u "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" ]; then
     exec "$SINGULARITY_libexecdir/singularity/bin/wrapper-suid" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/image.sh"
-elif [ -x "$SINGULARITY_libexecdir/singularity/bin/mount" ]; then
-    exec "$SINGULARITY_libexecdir/singularity/bin/mount" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/image.sh"
+elif [ -x "$SINGULARITY_libexecdir/singularity/bin/wrapper" ]; then
+    exec "$SINGULARITY_libexecdir/singularity/bin/wrapper" /bin/bash "$SINGULARITY_libexecdir/singularity/helpers/image.sh"
 else
-    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/mount\n"
+    message ERROR "Could not locate the Singularity binary: $SINGULARITY_libexecdir/singularity/bin/wrapper\n"
     exit 1
 fi
 

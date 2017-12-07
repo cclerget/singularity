@@ -45,35 +45,14 @@
 #endif
 
 
-int main(int argc, char **argv) {
-    struct image_object image;
-
-    singularity_config_init();
-
-    singularity_suid_init();
-    singularity_priv_init();
-
-    singularity_registry_init();
-    singularity_priv_drop();
-
-    singularity_runtime_autofs();
-
-    if ( singularity_registry_get("WRITABLE") != NULL ) {
-        singularity_message(VERBOSE3, "Instantiating writable container image object\n");
-        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDWR);
-    } else {
-        singularity_message(VERBOSE3, "Instantiating read only container image object\n");
-        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDONLY);
-    }
+int singularity_command_mount(int argc, char **argv, struct image_object *image) {
 
     if ( is_owner(CONTAINER_MOUNTDIR, 0) != 0 ) {
         singularity_message(ERROR, "Root must own container mount directory: %s\n", CONTAINER_MOUNTDIR);
         ABORT(255);
     }
 
-    singularity_runtime_ns(SR_NS_MNT);
-
-    singularity_image_mount(&image, CONTAINER_MOUNTDIR);
+    singularity_image_mount(image, CONTAINER_MOUNTDIR);
 
     singularity_runtime_overlayfs();
 
@@ -92,7 +71,7 @@ int main(int argc, char **argv) {
 
     } else {
 
-        singularity_message(INFO, "%s is mounted at: %s\n\n", singularity_image_name(&image), CONTAINER_FINALDIR);
+        singularity_message(INFO, "%s is mounted at: %s\n\n", singularity_image_name(image), CONTAINER_FINALDIR);
         envar_set("PS1", "Singularity> ", 1);
 
         execl("/bin/sh", "/bin/sh", NULL); // Flawfinder: ignore (Yes flawfinder, this is what we want, sheesh, so demanding!)
