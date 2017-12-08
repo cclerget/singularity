@@ -327,7 +327,7 @@ void singularity_priv_drop_perm(void) {
     }
 
     if ( death_signal == 0 ) {
-        if ( prctl(PR_SET_PDEATHSIG, SIGQUIT) < 0 ) {
+        if ( prctl(PR_SET_PDEATHSIG, SIGKILL) < 0 ) {
             singularity_message(ERROR, "Could not set parent death signal\n");
             ABORT(255);
         }

@@ -96,18 +96,18 @@ int daemon_is_running(char *pid_path) {
     char *daemon_name = singularity_registry_get("DAEMON_NAME");
     char *daemon_cmdline = NULL;
     char *daemon_procname = NULL;
-    FILE *file_cmdline;
+    FILE *file;
 
     xsnprintf(&daemon_procname, 2048, "singularity-instance: %s [%s]", singularity_priv_getuser(), daemon_name);
 
-    file_cmdline = fopen(joinpath(pid_path, "/cmdline"), "r");
-    if ( file_cmdline == NULL ) {
+    file = fopen(joinpath(pid_path, "/cmdline"), "r");
+    if ( file == NULL ) {
         singularity_message(ERROR, "Can't open process command line, is instance %s running ?\n", daemon_name);
         ABORT(255);
     }
 
     daemon_cmdline = (char *)xmalloc(2048);
-    if ( fgets(daemon_cmdline, 2048, file_cmdline) == NULL ) {
+    if ( fgets(daemon_cmdline, 2048, file) == NULL ) {
         singularity_message(ERROR, "Can't read command line, is instance %s running ?\n", daemon_name);
         ABORT(255);
     }
@@ -274,7 +274,8 @@ void daemon_init_start(void) {
 
     daemon_file_write(daemon_fd, "DAEMON_PID", daemon_pid);
     daemon_file_write(daemon_fd, "DAEMON_IMAGE", daemon_image);
-    daemon_file_write(daemon_fd, "DAEMON_ROOTFS", singularity_registry_get("ROOTFS"));
+
+    singularity_registry_set("DAEMON_PID", daemon_pid);
 
     if ( singularity_registry_get("ADD_CAPS") ) {
         daemon_file_write(daemon_fd, "ADD_CAPS", singularity_registry_get("ADD_CAPS"));

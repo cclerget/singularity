@@ -52,6 +52,12 @@
 int _singularity_runtime_ns(unsigned int flags) {
     int retval = 0;
 
+    if ( singularity_registry_get("PIDNS_ENABLED") && singularity_registry_get("DAEMON_START") ) {
+        if ( singularity_registry_get("DAEMON_PID") == NULL ) {
+            singularity_daemon_init();
+        }
+    }
+
     if ( flags & SR_NS_USER ) {
         singularity_message(DEBUG, "Calling: _singularity_runtime_ns_user()\n");
         retval += _singularity_runtime_ns_user();

@@ -50,15 +50,28 @@
 #endif
 
 
-int singularity_command_action(int argc, char **argv, struct image_object *image) {
+int singularity_command_action(int argc, char **argv, unsigned int namespaces) {
+    struct image_object image;
     char *pwd = get_current_dir_name();
     char *target_pwd = NULL;
     char *command = NULL;
 
+    singularity_runtime_autofs();
+
+    if ( singularity_registry_get("WRITABLE") != NULL ) {
+        singularity_message(VERBOSE3, "Instantiating writable container image object\n");
+        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDWR);
+    } else {
+        singularity_message(VERBOSE3, "Instantiating read only container image object\n");
+        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDONLY);
+    }
+
+    singularity_runtime_ns(namespaces);
+
     if ( singularity_registry_get("DAEMON_JOIN") == NULL ) {
         singularity_sessiondir();
 
-        singularity_image_mount(image, CONTAINER_MOUNTDIR);
+        singularity_image_mount(&image, CONTAINER_MOUNTDIR);
 
         action_ready();
 
@@ -109,12 +122,12 @@ int singularity_command_action(int argc, char **argv, struct image_object *image
 
     command = singularity_registry_get("COMMAND");
 
-    envar_set("SINGULARITY_CONTAINER", singularity_image_name(image), 1); // Legacy PS1 support
-    envar_set("SINGULARITY_NAME", singularity_image_name(image), 1);
+    envar_set("SINGULARITY_CONTAINER", singularity_image_name(&image), 1); // Legacy PS1 support
+    envar_set("SINGULARITY_NAME", singularity_image_name(&image), 1);
     envar_set("SINGULARITY_SHELL", singularity_registry_get("SHELL"), 1);
     envar_set("SINGULARITY_APPNAME", singularity_registry_get("APPNAME"), 1);
 
-    singularity_message(LOG, "USER=%s, IMAGE='%s', COMMAND='%s'\n", singularity_priv_getuser(), singularity_image_name(image), singularity_registry_get("COMMAND"));
+    singularity_message(LOG, "USER=%s, IMAGE='%s', COMMAND='%s'\n", singularity_priv_getuser(), singularity_image_name(&image), singularity_registry_get("COMMAND"));
 
     if ( command == NULL ) {
         singularity_message(INFO, "No action command verb was given, invoking 'shell'\n");

@@ -54,7 +54,7 @@ extern char **environ;
 
 struct cmd_wrapper {
     char *command;
-    int (*function)(int, char **, struct image_object *);
+    int (*function)(int, char **, unsigned int);
     void (*capinit)(void);
     unsigned int cmdflags;
     unsigned int nsflags;
@@ -135,7 +135,7 @@ struct cmd_wrapper cmd_wrapper[] = {
         .nsflags    = SR_NS_ALL
     },{
         .command    = NULL,
-        .function     = NULL,
+        .function   = NULL,
         .capinit    = NULL,
         .cmdflags   = 0,
         .nsflags    = 0
@@ -187,16 +187,6 @@ static void start_child(pid_t child) {
     stop_fork_sync();
 }
 
-struct image_object open_image(void) {
-    if ( singularity_registry_get("WRITABLE") != NULL ) {
-        singularity_message(VERBOSE3, "Instantiating writable container image object\n");
-        return singularity_image_init(singularity_registry_get("IMAGE"), O_RDWR);
-    } else {
-        singularity_message(VERBOSE3, "Instantiating read only container image object\n");
-        return singularity_image_init(singularity_registry_get("IMAGE"), O_RDONLY);
-    }
-}
-
 int main(int argc, char **argv) {
     int index;
     char *command;
@@ -245,12 +235,7 @@ int main(int argc, char **argv) {
     }
 
     if ( cmd_wrapper[index].cmdflags & CMD_NOFORK ) {
-        struct image_object image;
-
-        singularity_runtime_autofs();
-        image = open_image();
-        singularity_runtime_ns(cmd_wrapper[index].nsflags);
-        return(cmd_wrapper[index].function(argc, argv, &image));
+        return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
     } else if ( cmd_wrapper[index].cmdflags & CMD_FORK ) {
         pid_t child;
 
@@ -265,7 +250,6 @@ int main(int argc, char **argv) {
             child = singularity_fork(0);
         }
         if ( child == 0 ) {
-            struct image_object image;
             pid_t child_pid = 0;
 
             if ( wait_parent(&child_pid) < 0 ) {
@@ -275,11 +259,7 @@ int main(int argc, char **argv) {
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
-            singularity_runtime_autofs();
-
-            image = open_image();
-            singularity_runtime_ns(cmd_wrapper[index].nsflags);
-            return(cmd_wrapper[index].function(argc, argv, &image));
+            return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else if ( child > 0 ) {
             int status;
             int retval = -1;
@@ -287,7 +267,6 @@ int main(int argc, char **argv) {
 
             start_child(child);
 
-            singularity_priv_escalate();
             while(1) {
                 waitpid(child, &status, 0);
                 if ( WIFEXITED(status) || WIFSIGNALED(status) ) {
@@ -299,6 +278,9 @@ int main(int argc, char **argv) {
                 if ( s_rmdir(cleanup_dir) < 0 ) {
                     singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
                 }
+            }
+            if ( WIFSIGNALED(status) ) {
+                kill(getpid(), SIGKILL);
             }
             return(retval);
         }
@@ -330,7 +312,6 @@ int main(int argc, char **argv) {
         }
 
         if ( child == 0 ) {
-            struct image_object image;
             pid_t child_pid = 0;
 
             if ( wait_parent(&child_pid) < 0 ) {
@@ -340,10 +321,7 @@ int main(int argc, char **argv) {
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
-            singularity_runtime_autofs();
-            image = open_image();
-            singularity_runtime_ns(cmd_wrapper[index].nsflags);
-            return(cmd_wrapper[index].function(argc, argv, &image));
+            return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else {
             int status;
             int retval = -1;

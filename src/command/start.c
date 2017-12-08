@@ -49,27 +49,38 @@
 
 int started = 0;
 
-int singularity_command_start(int argc, char **argv, struct image_object *image) {
+int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
+    struct image_object image;
     int i;
     struct tempfile *stdout_log, *stderr_log, *singularity_debug;
     pid_t child;
     siginfo_t siginfo;
     struct stat filestat;
 
+    /* At this point, we are running as PID 1 inside PID NS */
+    singularity_message(DEBUG, "Preparing sinit daemon\n");
+
+    singularity_runtime_autofs();
+
+    if ( singularity_registry_get("WRITABLE") != NULL ) {
+        singularity_message(VERBOSE3, "Instantiating writable container image object\n");
+        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDWR);
+    } else {
+        singularity_message(VERBOSE3, "Instantiating read only container image object\n");
+        image = singularity_image_init(singularity_registry_get("IMAGE"), O_RDONLY);
+    }
+
+    singularity_runtime_ns(namespaces);
+
     singularity_sessiondir();
 
-    singularity_image_mount(image, CONTAINER_MOUNTDIR);
+    singularity_image_mount(&image, CONTAINER_MOUNTDIR);
 
     action_ready();
 
     singularity_runtime_overlayfs();
     singularity_runtime_mounts();
     singularity_runtime_files();
-
-    /* After this point, we are running as PID 1 inside PID NS */
-    singularity_message(DEBUG, "Preparing sinit daemon\n");
-    singularity_registry_set("ROOTFS", CONTAINER_FINALDIR);
-    singularity_daemon_init();
 
     singularity_message(DEBUG, "Entering chroot environment\n");
 
@@ -107,6 +118,7 @@ int singularity_command_start(int argc, char **argv, struct image_object *image)
         } else {
             close(pipes[0]);
             if ( is_exec("/sbin/init") == 0 ) {
+                argv[0] = "init";
                 argv[1] = NULL;
                 if ( execv("/sbin/init", argv) < 0 ) { // Flawfinder: ignore
                     singularity_message(ERROR, "Exec of /sbin/init failed\n");
@@ -176,6 +188,7 @@ int singularity_command_start(int argc, char **argv, struct image_object *image)
         if ( is_exec("/.singularity.d/actions/start") == 0 ) {
             singularity_message(DEBUG, "Exec'ing /.singularity.d/actions/start\n");
 
+            argv[0] = "sinit";
             if ( execv("/.singularity.d/actions/start", argv) < 0 ) { // Flawfinder: ignore
                 singularity_message(ERROR, "Failed to execv() /.singularity.d/actions/start: %s\n", strerror(errno));
                 ABORT(CHILD_FAILED);
