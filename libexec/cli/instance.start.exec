@@ -283,10 +283,19 @@ for i in $DAEMONS; do
                     message ERROR "A daemon process is already running with this name: ${DAEMON_NAME}\n"
                     ABORT 255
                 fi
-                if [ "${PROGNAME}" != "singularity-instance: $USER [$DAEMON_NAME]" ]; then
-                    message WARN "Removing stale daemon file: $i\n"
-                    rm -f "$i"
+                DAEMON_PPID=$(cat /proc/${DAEMON_PID:-}/status|grep "PPid:"|cut -d $'\t' -f 2)
+                if [ ! -z "${DAEMON_PPID}" ]; then
+                    PROC_CMDLINE="/proc/${DAEMON_PPID:-}/cmdline"
+                    if [ -e "$PROC_CMDLINE" ]; then
+                        PROGNAME=$(<"${PROC_CMDLINE}" tr -d \\0)
+                        if [ "${PROGNAME}" == "${INSTANCE_PROC_NAME}" ]; then
+                            message ERROR "A daemon process is already running with this name: ${DAEMON_NAME}\n"
+                            ABORT 255
+                        fi
+                    fi
                 fi
+                message WARN "Removing stale daemon file: $i\n"
+                rm -f "$i"
             else
                 message WARN "Removing stale daemon file: $i\n"
                 rm -f "$i"

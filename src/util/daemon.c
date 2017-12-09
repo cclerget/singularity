@@ -96,11 +96,38 @@ int daemon_is_running(char *pid_path) {
     char *daemon_name = singularity_registry_get("DAEMON_NAME");
     char *daemon_cmdline = NULL;
     char *daemon_procname = NULL;
+    char *line = (char *)xmalloc(2048);
+    char *ppid_path = NULL;
+    pid_t ppid = 0;
     FILE *file;
 
     xsnprintf(&daemon_procname, 2048, "singularity-instance: %s [%s]", singularity_priv_getuser(), daemon_name);
 
-    file = fopen(joinpath(pid_path, "/cmdline"), "r");
+    file = fopen(joinpath(pid_path, "/status"), "r");
+    if ( file == NULL ) {
+        singularity_message(ERROR, "Can't open process command line, is instance %s running ?\n", daemon_name);
+        ABORT(255);
+    }
+
+    while ( fgets(line, 2048, file) != NULL ) {
+        if ( sscanf(line, "PPid:\t%d\n", &ppid) != 0 ) {
+            break;
+        }
+    }
+
+    if ( ppid ) {
+        xsnprintf(&ppid_path, 2048, "/proc/%d", ppid);
+    }
+
+    free(line);
+    free(ppid_path);
+    fclose(file);
+
+    if ( ppid == 0 ) {
+        return(0);
+    }
+
+    file = fopen(joinpath(ppid_path, "/cmdline"), "r");
     if ( file == NULL ) {
         singularity_message(ERROR, "Can't open process command line, is instance %s running ?\n", daemon_name);
         ABORT(255);
@@ -118,7 +145,7 @@ int daemon_is_running(char *pid_path) {
 
     free(daemon_cmdline);
     free(daemon_procname);
-    fclose(file_cmdline);
+    fclose(file);
 
     return(retval);
 }

@@ -118,7 +118,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         } else {
             close(pipes[0]);
             if ( is_exec("/sbin/init") == 0 ) {
-                argv[0] = "init";
+                argv[0] = "[/sbin/init]";
                 argv[1] = NULL;
                 if ( execv("/sbin/init", argv) < 0 ) { // Flawfinder: ignore
                     singularity_message(ERROR, "Exec of /sbin/init failed\n");
@@ -160,10 +160,13 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     }
 
     /* set program name */
-    if ( prctl(PR_SET_NAME, "sinit", 0, 0, 0) < 0 ) {
+    if ( prctl(PR_SET_NAME, "[sinit]", 0, 0, 0) < 0 ) {
         singularity_message(ERROR, "Failed to set program name\n");
         ABORT(255);
     }
+
+    memset(argv[0], 0, strlen(argv[0]));
+    sprintf(argv[0], "[sinit]");
 
     child = fork();
     
@@ -188,7 +191,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         if ( is_exec("/.singularity.d/actions/start") == 0 ) {
             singularity_message(DEBUG, "Exec'ing /.singularity.d/actions/start\n");
 
-            argv[0] = "sinit";
             if ( execv("/.singularity.d/actions/start", argv) < 0 ) { // Flawfinder: ignore
                 singularity_message(ERROR, "Failed to execv() /.singularity.d/actions/start: %s\n", strerror(errno));
                 ABORT(CHILD_FAILED);
