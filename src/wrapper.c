@@ -33,6 +33,7 @@
 #include "util/privilege.h"
 #include "util/suid.h"
 #include "util/signal.h"
+#include "util/sessiondir.h"
 #include "lib/image/image.h"
 #include "lib/runtime/runtime.h"
 #include "command/command.h"

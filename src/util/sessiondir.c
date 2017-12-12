@@ -53,6 +53,10 @@ int singularity_sessiondir(void) {
     int sessiondir_size_str_len;
     int sessiondir_size_str_usd;
 
+    if ( singularity_registry_get("DAEMON_JOIN") ) {
+        return(0);
+    }
+
     if ( singularity_registry_get("SESSIONDIR") ) {
         sessiondir = singularity_registry_get("SESSIONDIR");
         singularity_priv_escalate();
@@ -62,10 +66,6 @@ int singularity_sessiondir(void) {
         }
         singularity_priv_drop();
         return(0);
-    }
-
-    if ( singularity_registry_get("DAEMON_JOIN") ) {
-        singularity_message(ERROR, "Internal Error - This function should not be called when joining an instance\n");
     }
 
     singularity_message(DEBUG, "Setting sessiondir\n");
