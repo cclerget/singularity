@@ -17,13 +17,13 @@
 # https://github.com/singularityware/singularity/blob/master/LICENSE-LBNL.md.
 
 ## Load capabilities
-if [ -f "$SINGULARITY_libexecdir/singularity/capabilities" ]; then
-    . "$SINGULARITY_libexecdir/singularity/capabilities"
-    singularity_get_env_capabilities
-else
-    echo "Error loading capabilities: $SINGULARITY_libexecdir/singularity/capabilities"
-    exit 1
-fi
+#if [ -f "$SINGULARITY_libexecdir/singularity/capabilities" ]; then
+#    . "$SINGULARITY_libexecdir/singularity/capabilities"
+#    singularity_get_env_capabilities
+#else
+#    echo "Error loading capabilities: $SINGULARITY_libexecdir/singularity/capabilities"
+#    exit 1
+#fi
 
 message 2 "Evaluating args: '$*'\n"
 
