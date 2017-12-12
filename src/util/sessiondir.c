@@ -95,6 +95,10 @@ int singularity_sessiondir(void) {
         singularity_message(ERROR, "Failed to mount sessiondir tmpfs %s: %s\n", sessiondir, strerror(errno));
         ABORT(255);
     }
+    if ( singularity_mount(sessiondir, sessiondir, NULL, MS_BIND, NULL) < 0 ){
+        singularity_message(ERROR, "Failed to mount sessiondir tmpfs %s: %s\n", sessiondir, strerror(errno));
+        ABORT(255);
+    }
     singularity_priv_drop();
 
     singularity_registry_set("SESSIONDIR", sessiondir);
