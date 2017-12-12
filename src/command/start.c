@@ -96,8 +96,8 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         int pipes[2];
 
         if ( pipe2(pipes, O_CLOEXEC) < 0 ) {
-            singularity_signal_go_ahead(255);
-            return(0);
+            singularity_message(ERROR, "Failed to create pipe\n");
+            ABORT(255);
         }
 
         if ( fork() == 0 ) {
@@ -127,8 +127,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
                 singularity_message(ERROR, "/sbin/init not present in container\n");
             }
             /* send exit status and implicitly kill polling child */
-            singularity_signal_go_ahead(255);
-            return(0);
+            ABORT(255);
         }
     }
 
@@ -165,6 +164,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         ABORT(255);
     }
 
+    /* we have enough room to set argv[0] since it set to singularity-instance: user[name] */
     memset(argv[0], 0, strlen(argv[0]));
     sprintf(argv[0], "[sinit]");
 
@@ -193,7 +193,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
 
             if ( execv("/.singularity.d/actions/start", argv) < 0 ) { // Flawfinder: ignore
                 singularity_message(ERROR, "Failed to execv() /.singularity.d/actions/start: %s\n", strerror(errno));
-                ABORT(CHILD_FAILED);
+                return(CHILD_FAILED);
             }
         } else {
             singularity_message(VERBOSE, "Instance start script not found\n");
@@ -212,14 +212,13 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         alarm(1);
         while (1) {
             if ( singularity_handle_signals(&siginfo) < 0 ) {
-                singularity_signal_go_ahead(255);
-                break;
+                singularity_message(ERROR, "Failed to handle signals\n");
+                ABORT(255);
             }
             if ( siginfo.si_signo == SIGCHLD ) {
                 singularity_message(DEBUG, "Child exited\n");
                 if ( siginfo.si_pid == 2 && siginfo.si_status == CHILD_FAILED ) {
-                    singularity_signal_go_ahead(CHILD_FAILED);
-                    break;
+                    ABORT(CHILD_FAILED);
                 }
             } else if ( siginfo.si_signo == SIGCONT && siginfo.si_pid == 2 ) {
                 /* start script correctly exec */
@@ -228,13 +227,12 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
             } else if ( siginfo.si_signo == SIGALRM && started == 0 ) {
                 /* don't receive SIGCONT, start script modified/replaced ? */
                 singularity_message(ERROR, "Start script doesn't send SIGCONT\n");
-                singularity_signal_go_ahead(255);
-                break;
+                ABORT(255);
             }
         }
     } else {
         singularity_message(ERROR, "Failed to execute start script\n");
-        singularity_signal_go_ahead(255);
+        return(255);
     }
     return(0);
 }

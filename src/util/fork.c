@@ -455,12 +455,10 @@ int singularity_fork_daemonize(unsigned int flags) {
         singularity_message(DEBUG, "Successfully spawned daemon, waiting for signal_go_ahead from child\n");
 
         int code = singularity_wait_for_go_ahead();
-        if ( code == 0 ) {
-            exit(0);
-        } else {
+        if ( code ) {
             singularity_message(ERROR, "Daemon failed to start\n");
-            ABORT(code);
         }
+        exit(code);
     }
     
     singularity_message(ERROR, "Reached unreachable code. How did you get here?\n");

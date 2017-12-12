@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <signal.h>
 #include <sched.h>
+#include <poll.h>
 
 #include "config.h"
 #include "util/file.h"
@@ -142,49 +143,93 @@ struct cmd_wrapper cmd_wrapper[] = {
     }
 };
 
+int sync_pipe[2];
+int pipe_size;
+
 static void start_fork_sync(void) {
-    sigset_t mask;
+    char *buffer;
 
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGALRM);
-    sigprocmask(SIG_BLOCK, &mask, NULL);
-}
-
-static void stop_fork_sync(void) {
-    sigset_t mask;
-
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGALRM);
-    sigprocmask(SIG_UNBLOCK, &mask, NULL);
-}
-
-static int wait_parent(pid_t *mypid) {
-    int retval = -1;
-    pid_t parent = getppid();
-    sigset_t mask;
-    siginfo_t ac;
-
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGALRM);
-
-    while(1) {
-        sigwaitinfo(&mask, &ac);
-        if ( parent == ac.si_pid ) {
-            *mypid = (pid_t)ac.si_value.sival_int;
-            retval = 0;
-        }
-        break;
+    if ( pipe(sync_pipe) < 0 ) {
+        singularity_message(ERROR, "Can't install fork sync pipe\n");
+        ABORT(255);
     }
-    stop_fork_sync();
-    return(retval);
+
+    if ( fcntl(sync_pipe[0], F_SETPIPE_SZ, 1) < 0 ) {
+        singularity_message(ERROR, "Can't set pipe size\n");
+        ABORT(255);
+    }
+    pipe_size = fcntl(sync_pipe[0], F_GETPIPE_SZ);
+    if ( pipe_size < 0 ) {
+        singularity_message(ERROR, "Can't get pipe size\n");
+        ABORT(255);
+    }
+
+    buffer = (char *)calloc(sizeof(char), pipe_size);
+    if ( buffer == NULL ) {
+        singularity_message(ERROR, "Failed to allocate %d memory bytes\n", pipe_size);
+        ABORT(255);
+    }
+    if ( write(sync_pipe[1], buffer, pipe_size) != pipe_size ) {
+        singularity_message(ERROR, "Failed to fill sync pipe\n");
+        ABORT(255);
+    }
+    free(buffer);
 }
 
-static void start_child(pid_t child) {
-    union sigval sv;
+static void wait_parent(void) {
+    struct pollfd pfd;
+    char *buffer;
 
-    sv.sival_int = child;
-    sigqueue(child, SIGALRM, sv);
-    stop_fork_sync();
+    /*
+       this will be reset on next uid change, so a race persist if
+       parent die during child initialization
+     */
+    if ( prctl(PR_SET_PDEATHSIG, SIGKILL) < 0 ) {
+        singularity_message(ERROR, "Failed to parent death signal\n");
+        ABORT(255);
+    }
+
+    close(sync_pipe[1]);
+
+    pfd.fd = sync_pipe[0];
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+
+    buffer = (char *)calloc(sizeof(char), pipe_size);
+
+    if ( buffer == NULL ) {
+        singularity_message(ERROR, "Failed to allocate %d memory bytes\n", pipe_size);
+        ABORT(255);
+    }
+
+    /* unblock parent */
+    if ( read(sync_pipe[0], buffer, pipe_size) != pipe_size ) {
+        singularity_message(ERROR, "Failed to empty sync pipe\n");
+        ABORT(255);
+    }
+
+    while( poll(&pfd, 1, 1000) >= 0 ) {
+        /* waiting parent breaks the pipe */
+        if ( pfd.revents & POLLHUP ) {
+            break;
+        }
+    }
+    if ( ! (pfd.revents & POLLIN) ) {
+        kill(getpid(), SIGKILL);
+    }
+    close(sync_pipe[0]);
+    free(buffer);
+}
+
+static void start_child(void) {
+    close(sync_pipe[0]);
+    /* parent block here because pipe is full, wait child unblock */
+    if ( write(sync_pipe[1], "go", 2) != 2 ) {
+        singularity_message(ERROR, "Failed to send child sync\n");
+        ABORT(255);
+    }
+    close(sync_pipe[1]);
+    exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -245,17 +290,16 @@ int main(int argc, char **argv) {
         cmd_wrapper[index].nsflags &= ~SR_NS_PID;
 
         if ( singularity_registry_get("PIDNS_ENABLED") ) {
-            child = singularity_fork(CLONE_NEWPID);
+            singularity_priv_escalate();
+            child = fork_ns(CLONE_NEWPID);
+            singularity_priv_drop();
         } else {
-            child = singularity_fork(0);
+            child = fork();
         }
         if ( child == 0 ) {
             pid_t child_pid = 0;
 
-            if ( wait_parent(&child_pid) < 0 ) {
-                singularity_message(ERROR, "Receive signal from non parent\n");
-                ABORT(255);
-            }
+            wait_parent();
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
@@ -265,7 +309,7 @@ int main(int argc, char **argv) {
             int retval = -1;
             char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
 
-            start_child(child);
+            start_child();
 
             while(1) {
                 waitpid(child, &status, 0);
@@ -314,10 +358,7 @@ int main(int argc, char **argv) {
         if ( child == 0 ) {
             pid_t child_pid = 0;
 
-            if ( wait_parent(&child_pid) < 0 ) {
-                singularity_message(ERROR, "Receive signal from non parent\n");
-                ABORT(255);
-            }
+            wait_parent();
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
@@ -327,7 +368,7 @@ int main(int argc, char **argv) {
             int retval = -1;
             char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
 
-            start_child(child);
+            start_child();
 
             while(1) {
                 waitpid(child, &status, 0);
@@ -340,6 +381,9 @@ int main(int argc, char **argv) {
                 if ( s_rmdir(cleanup_dir) < 0 ) {
                     singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
                 }
+            }
+            if ( WIFEXITED(status) ) {
+                singularity_signal_go_ahead(retval);
             }
             return(retval);
         }

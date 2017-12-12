@@ -275,15 +275,11 @@ for i in $DAEMONS; do
         FILE_NAME=`basename "$i"`
         DAEMON_NAME=${FILE_NAME##*-}
         . "$i"
+
         if [ -n "${DAEMON_PID:-}" ]; then
-            PROC_CMDLINE="/proc/${DAEMON_PID:-}/cmdline"
-            if [ -e "$PROC_CMDLINE" ]; then
-                PROGNAME=$(<"${PROC_CMDLINE}" tr -d \\0)
-                if [ "${PROGNAME}" == "${INSTANCE_PROC_NAME}" ]; then
-                    message ERROR "A daemon process is already running with this name: ${DAEMON_NAME}\n"
-                    ABORT 255
-                fi
-                DAEMON_PPID=$(cat /proc/${DAEMON_PID:-}/status|grep "PPid:"|cut -d $'\t' -f 2)
+            PROC_STATUS="/proc/${DAEMON_PID:-}/status"
+            if [ -e "$PROC_STATUS" ]; then
+                DAEMON_PPID=$(cat ${PROC_STATUS:-}|grep "PPid:"|cut -d $'\t' -f 2)
                 if [ ! -z "${DAEMON_PPID}" ]; then
                     PROC_CMDLINE="/proc/${DAEMON_PPID:-}/cmdline"
                     if [ -e "$PROC_CMDLINE" ]; then
@@ -292,17 +288,15 @@ for i in $DAEMONS; do
                             message ERROR "A daemon process is already running with this name: ${DAEMON_NAME}\n"
                             ABORT 255
                         fi
+                    else
+                        message WARN "Removing stale daemon file: $i\n"
+                        rm -f "$i"
                     fi
                 fi
-                message WARN "Removing stale daemon file: $i\n"
-                rm -f "$i"
             else
-                message WARN "Removing stale daemon file: $i\n"
+                message WARN "Removing invalid daemon file: $i\n"
                 rm -f "$i"
             fi
-        else
-            message WARN "Removing invalid daemon file: $i\n"
-            rm -f "$i"
         fi
     fi
 done
