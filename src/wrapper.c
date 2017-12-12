@@ -229,7 +229,6 @@ static void start_child(void) {
         ABORT(255);
     }
     close(sync_pipe[1]);
-    exit(0);
 }
 
 int main(int argc, char **argv) {
