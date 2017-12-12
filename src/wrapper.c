@@ -154,7 +154,7 @@ static void start_fork_sync(void) {
         singularity_message(ERROR, "Can't install fork sync pipe\n");
         ABORT(255);
     }
-
+/*
     if ( fcntl(sync_pipe[0], F_SETPIPE_SZ, 1) < 0 ) {
         singularity_message(ERROR, "Can't set pipe size\n");
         ABORT(255);
@@ -164,7 +164,7 @@ static void start_fork_sync(void) {
         singularity_message(ERROR, "Can't get pipe size\n");
         ABORT(255);
     }
-
+*/
     buffer = (char *)calloc(sizeof(char), pipe_size);
     if ( buffer == NULL ) {
         singularity_message(ERROR, "Failed to allocate %d memory bytes\n", pipe_size);
@@ -284,7 +284,7 @@ int main(int argc, char **argv) {
     } else if ( cmd_wrapper[index].cmdflags & CMD_FORK ) {
         pid_t child;
 
-        start_fork_sync();
+//        start_fork_sync();
 
         singularity_runtime_ns(SR_NS_PID|SR_NS_MNT);
         singularity_sessiondir();
@@ -300,7 +300,7 @@ int main(int argc, char **argv) {
         if ( child == 0 ) {
             pid_t child_pid = 0;
 
-            wait_parent();
+  //          wait_parent();
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
@@ -310,7 +310,7 @@ int main(int argc, char **argv) {
             int retval = -1;
             char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
 
-            start_child();
+    //        start_child();
 
             while(1) {
                 waitpid(child, &status, 0);
@@ -339,7 +339,7 @@ int main(int argc, char **argv) {
 
         singularity_fork_daemonize(0);
 
-        start_fork_sync();
+      //  start_fork_sync();
 
         singularity_runtime_ns(SR_NS_PID|SR_NS_MNT);
         singularity_sessiondir();
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
         if ( child == 0 ) {
             pid_t child_pid = 0;
 
-            wait_parent();
+        //    wait_parent();
 
             singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
@@ -375,7 +375,7 @@ int main(int argc, char **argv) {
             int retval = -1;
             char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
 
-            start_child();
+//            start_child();
 
             while(1) {
                 waitpid(child, &status, 0);
