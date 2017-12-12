@@ -53,6 +53,17 @@ int singularity_sessiondir(void) {
     int sessiondir_size_str_len;
     int sessiondir_size_str_usd;
 
+    if ( singularity_registry_get("SESSIONDIR") ) {
+        sessiondir = singularity_registry_get("SESSIONDIR");
+        singularity_priv_escalate();
+        if ( singularity_mount(sessiondir, sessiondir, NULL, MS_BIND, NULL) < 0 ) {
+            singularity_message(ERROR, "Failed to mount sessiondir tmpfs %s: %s\n", sessiondir, strerror(errno));
+            ABORT(255);
+        }
+        singularity_priv_drop();
+        return(0);
+    }
+
     if ( singularity_registry_get("DAEMON_JOIN") ) {
         singularity_message(ERROR, "Internal Error - This function should not be called when joining an instance\n");
     }

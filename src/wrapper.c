@@ -229,7 +229,6 @@ static void start_child(void) {
         ABORT(255);
     }
     close(sync_pipe[1]);
-    exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -286,7 +285,8 @@ int main(int argc, char **argv) {
 
         start_fork_sync();
 
-        singularity_runtime_ns(SR_NS_PID);
+        singularity_runtime_ns(SR_NS_PID|SR_NS_MNT);
+        singularity_sessiondir();
         cmd_wrapper[index].nsflags &= ~SR_NS_PID;
 
         if ( singularity_registry_get("PIDNS_ENABLED") ) {
@@ -323,6 +323,11 @@ int main(int argc, char **argv) {
                     singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
                 }
             }
+            singularity_priv_escalate();
+            if ( umount(singularity_registry_get("SESSIONDIR")) < 0 ) {
+                singularity_message(ERROR, "Umount failed: %s\n", strerror(errno));
+            }
+            singularity_priv_drop();
             if ( WIFSIGNALED(status) ) {
                 kill(getpid(), SIGKILL);
             }
@@ -335,7 +340,8 @@ int main(int argc, char **argv) {
 
         start_fork_sync();
 
-        singularity_runtime_ns(SR_NS_PID);
+        singularity_runtime_ns(SR_NS_PID|SR_NS_MNT);
+        singularity_sessiondir();
         cmd_wrapper[index].nsflags &= ~SR_NS_PID;
 
         if ( chdir("/") < 0 ) {
@@ -382,6 +388,12 @@ int main(int argc, char **argv) {
                     singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
                 }
             }
+            singularity_priv_escalate();
+            if ( umount(singularity_registry_get("SESSIONDIR")) < 0 ) {
+                singularity_message(ERROR, "Umount failed: %s\n", strerror(errno));
+            }
+            singularity_priv_drop();
+
             if ( WIFEXITED(status) ) {
                 singularity_signal_go_ahead(retval);
             }
