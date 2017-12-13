@@ -91,12 +91,12 @@ int singularity_sessiondir(void) {
 
     singularity_priv_escalate();
     singularity_message(DEBUG, "Mounting sessiondir tmpfs: %s\n", sessiondir);
-    if ( singularity_mount("tmpfs", sessiondir, "tmpfs", MS_NOSUID, sessiondir_size_str) < 0 ){
+    if ( singularity_mount("ramfs", sessiondir, "ramfs", MS_NOSUID, sessiondir_size_str) < 0 ){
         singularity_message(ERROR, "Failed to mount sessiondir tmpfs %s: %s\n", sessiondir, strerror(errno));
         ABORT(255);
     }
-    if ( singularity_mount(sessiondir, sessiondir, NULL, MS_BIND, NULL) < 0 ){
-        singularity_message(ERROR, "Failed to mount sessiondir tmpfs %s: %s\n", sessiondir, strerror(errno));
+    if ( chown(sessiondir, singularity_priv_getuid(), singularity_priv_getgid()) < 0 ){
+        singularity_message(ERROR, "Failed to set ramfs ownership: %s\n", strerror(errno));
         ABORT(255);
     }
     singularity_priv_drop();
