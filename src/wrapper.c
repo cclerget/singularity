@@ -147,38 +147,14 @@ int sync_pipe[2];
 int pipe_size;
 
 static void start_fork_sync(void) {
-    char *buffer;
-
     if ( pipe(sync_pipe) < 0 ) {
         singularity_message(ERROR, "Can't install fork sync pipe\n");
         ABORT(255);
     }
-
-    if ( fcntl(sync_pipe[0], F_SETPIPE_SZ, 1) < 0 ) {
-        singularity_message(ERROR, "Can't set pipe size\n");
-        ABORT(255);
-    }
-    pipe_size = fcntl(sync_pipe[0], F_GETPIPE_SZ);
-    if ( pipe_size < 0 ) {
-        singularity_message(ERROR, "Can't get pipe size\n");
-        ABORT(255);
-    }
-
-    buffer = (char *)calloc(sizeof(char), pipe_size);
-    if ( buffer == NULL ) {
-        singularity_message(ERROR, "Failed to allocate %d memory bytes\n", pipe_size);
-        ABORT(255);
-    }
-    if ( write(sync_pipe[1], buffer, pipe_size) != pipe_size ) {
-        singularity_message(ERROR, "Failed to fill sync pipe\n");
-        ABORT(255);
-    }
-    free(buffer);
 }
 
 static void wait_parent(void) {
     struct pollfd pfd;
-    char *buffer;
 
     /*
        this will be reset on next uid change, so a race persist if
@@ -195,19 +171,6 @@ static void wait_parent(void) {
     pfd.events = POLLIN;
     pfd.revents = 0;
 
-    buffer = (char *)calloc(sizeof(char), pipe_size);
-
-    if ( buffer == NULL ) {
-        singularity_message(ERROR, "Failed to allocate %d memory bytes\n", pipe_size);
-        ABORT(255);
-    }
-
-    /* unblock parent */
-    if ( read(sync_pipe[0], buffer, pipe_size) != pipe_size ) {
-        singularity_message(ERROR, "Failed to empty sync pipe\n");
-        ABORT(255);
-    }
-
     while( poll(&pfd, 1, 1000) >= 0 ) {
         /* waiting parent breaks the pipe */
         if ( pfd.revents & POLLHUP ) {
@@ -218,12 +181,10 @@ static void wait_parent(void) {
         kill(getpid(), SIGKILL);
     }
     close(sync_pipe[0]);
-    free(buffer);
 }
 
 static void start_child(void) {
     close(sync_pipe[0]);
-    /* parent block here because pipe is full, wait child unblock */
     if ( write(sync_pipe[1], "go", 2) != 2 ) {
         singularity_message(ERROR, "Failed to send child sync\n");
         ABORT(255);
