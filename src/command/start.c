@@ -51,11 +51,8 @@ int started = 0;
 
 int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     struct image_object image;
-    int i;
-    struct tempfile *stdout_log, *stderr_log, *singularity_debug;
     pid_t child;
     siginfo_t siginfo;
-    struct stat filestat;
 
     /* At this point, we are running as PID 1 inside PID NS */
     singularity_message(DEBUG, "Preparing sinit daemon\n");
@@ -139,25 +136,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
 
     singularity_install_signal_handler();
 
-    /* Close all open fd's that may be present besides daemon info file fd */
-    singularity_message(DEBUG, "Closing open fd's\n");
-    for( i = sysconf(_SC_OPEN_MAX); i > 2; i-- ) {        
-        if ( fstat(i, &filestat) == 0 ) {
-            if ( S_ISFIFO(filestat.st_mode) != 0 ) {
-                continue;
-            }
-        }
-        close(i);
-    }
-
-    singularity_debug = make_logfile("singularity-debug");
-    stdout_log = make_logfile("stdout");
-    stderr_log = make_logfile("stderr");
-    
-    for( i = 0; i <= 2; i++ ) {
-        close(i);
-    }
-
     /* set program name */
     if ( prctl(PR_SET_NAME, "[sinit]", 0, 0, 0) < 0 ) {
         singularity_message(ERROR, "Failed to set program name\n");
@@ -171,20 +149,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     child = fork();
     
     if ( child == 0 ) {
-        /* Make standard output and standard error files to log stdout & stderr into */
-        if ( stdout_log != NULL ) {
-            if ( -1 == dup2(stdout_log->fd, 1) ) {
-                singularity_message(ERROR, "Unable to dup2(): %s\n", strerror(errno));
-                ABORT(255);
-            }
-        }
-
-        if ( stderr_log != NULL ) {
-            if ( -1 == dup2(stderr_log->fd, 2) ) {
-                singularity_message(ERROR, "Unable to dup2(): %s\n", strerror(errno));
-                ABORT(255);
-            }
-        }
 
         /* Unblock signals and execute startscript */
         singularity_unblock_signals();
@@ -200,12 +164,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
             kill(1, SIGCONT);
         }
     } else if ( child > 0 ) {
-        if ( singularity_debug != NULL ) {
-            if ( -1 == dup2(singularity_debug->fd, 2) ) {
-                singularity_message(ERROR, "Unable to dup2(): %s\n", strerror(errno));
-                ABORT(255);
-            }
-        }
 
         singularity_message(DEBUG, "Waiting for signals\n");
         /* send a SIGALRM if start script doesn't send SIGCONT within 1 seconds */
@@ -218,7 +176,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
             if ( siginfo.si_signo == SIGCHLD ) {
                 singularity_message(DEBUG, "Child exited\n");
                 if ( siginfo.si_pid == 2 && siginfo.si_status == CHILD_FAILED ) {
-                    ABORT(CHILD_FAILED);
+                    ABORT(255);
                 }
             } else if ( siginfo.si_signo == SIGCONT && siginfo.si_pid == 2 ) {
                 /* start script correctly exec */

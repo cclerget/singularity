@@ -239,6 +239,8 @@ int main(int argc, char **argv) {
         singularity_priv_drop();
     }
 
+    singularity_message(DEBUG, "Executing command %s\n", command);
+
     if ( cmd_wrapper[index].cmdflags & CMD_NOFORK ) {
         return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
     } else if ( cmd_wrapper[index].cmdflags & CMD_FORK ) {
@@ -257,11 +259,7 @@ int main(int argc, char **argv) {
             child = fork();
         }
         if ( child == 0 ) {
-            pid_t child_pid = 0;
-
             wait_parent();
-
-            singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
             return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else if ( child > 0 ) {
@@ -289,9 +287,54 @@ int main(int argc, char **argv) {
             return(retval);
         }
     } else if ( cmd_wrapper[index].cmdflags & CMD_DAEMON ) {
+        struct tempfile *stdout_log, *stderr_log;
+        pid_t grandchild;
         pid_t child;
+        int i;
+        struct stat filestat;
 
-        singularity_fork_daemonize(0);
+        stdout_log = make_logfile("stdout");
+        stderr_log = make_logfile("stderr");
+
+        grandchild = singularity_fork(0);
+
+        if ( grandchild > 0 ) {
+            int code = singularity_wait_for_go_ahead();
+            char *buffer;
+            FILE *errlog;
+
+            if ( code == 0 ) {
+                singularity_message(DEBUG, "Successfully spawned daemon, waiting for signal_go_ahead from child\n");
+                return(0);
+            }
+
+            /* display error log */
+            errlog = fopen(stderr_log->filename, "r");
+            if ( errlog == NULL ) {
+                singularity_message(ERROR, "Can't display log\n");
+                ABORT(code);
+            }
+
+            buffer = (char *)calloc(sizeof(char), 1024);
+            if ( buffer == NULL ) {
+                singularity_message(ERROR, "Can't allocate 1024 memory bytes\n");
+                ABORT(code);
+            }
+
+            while ( fgets(buffer, 1023, errlog) ) {
+                printf("%s", buffer);
+            }
+
+            fclose(errlog);
+
+            unlink(stdout_log->filename);
+            unlink(stderr_log->filename);
+
+            return(code);
+        } else if ( grandchild < 0 ) {
+            singularity_message(ERROR, "Failed to spawn daemon process\n");
+            ABORT(255);
+        }
 
         start_fork_sync();
 
@@ -300,12 +343,40 @@ int main(int argc, char **argv) {
 
         if ( chdir("/") < 0 ) {
             singularity_message(ERROR, "Can't change directory to /\n");
+            ABORT(255);
         }
         if ( setsid() < 0 ) {
             singularity_message(ERROR, "Can't set session leader\n");
             ABORT(255);
         }
         umask(0);
+
+        /* close standard stream and redirect stdout/stderr to file */
+        close(STDIN_FILENO);
+        if ( stdout_log != NULL ) {
+            if ( -1 == dup2(stdout_log->fd, STDOUT_FILENO) ) {
+                singularity_message(ERROR, "Unable to dup2(): %s\n", strerror(errno));
+                ABORT(255);
+            }
+        }
+
+        if ( stderr_log != NULL ) {
+            if ( -1 == dup2(stderr_log->fd, STDERR_FILENO) ) {
+                singularity_message(ERROR, "Unable to dup2(): %s\n", strerror(errno));
+                ABORT(255);
+            }
+        }
+
+        /* Close all open fd's that may be present */
+        singularity_message(DEBUG, "Closing open fd's\n");
+        for( i = sysconf(_SC_OPEN_MAX); i > 2; i-- ) {
+            if ( fstat(i, &filestat) == 0 ) {
+                if ( S_ISFIFO(filestat.st_mode) != 0 ) {
+                    continue;
+                }
+            }
+            close(i);
+        }
 
         if ( singularity_registry_get("PIDNS_ENABLED") ) {
             singularity_priv_escalate();
@@ -316,11 +387,7 @@ int main(int argc, char **argv) {
         }
 
         if ( child == 0 ) {
-            pid_t child_pid = 0;
-
             wait_parent();
-
-            singularity_message(DEBUG, "Executing command with PID %d\n", child_pid);
 
             return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else {
@@ -337,13 +404,18 @@ int main(int argc, char **argv) {
                     break;
                 }
             }
+
             if ( cleanup_dir ) {
                 if ( s_rmdir(cleanup_dir) < 0 ) {
                     singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
                 }
             }
+
             if ( WIFEXITED(status) ) {
                 singularity_signal_go_ahead(retval);
+            } else {
+                unlink(stdout_log->filename);
+                unlink(stderr_log->filename);
             }
             return(retval);
         }

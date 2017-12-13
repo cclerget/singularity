@@ -67,7 +67,7 @@ char *singularity_image_bind(struct image_object *image) {
     singularity_message(DEBUG, "Converted max_loop_devs_string to int: '%s' -> %ld\n", max_loop_devs_string, max_loop_devs);
 
     singularity_message(DEBUG, "Checking if this image has been properly opened\n");
-    if ( image->fd <= 0 ) {
+    if ( image->fd < 0 ) {
         singularity_message(ERROR, "Image file descriptor not assigned!\n");
         ABORT(255);
     }

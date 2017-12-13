@@ -62,6 +62,7 @@ int check_mounted(char *mountpoint) {
     real_mountpoint = realpath(mountpoint, NULL); // Flawfinder: ignore
     if ( real_mountpoint == NULL ) {
         // mountpoint doesn't exists
+        fclose(mounts);
         return(retval);
     }
 

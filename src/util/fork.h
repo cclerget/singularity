@@ -61,7 +61,7 @@
 
     // SINGULARITY_WAIT_FOR_GO_AHEAD()
     // Wait for the go-ahead signal described above
-    void singularity_wait_for_go_ahead();
+    int singularity_wait_for_go_ahead();
 
 
     int fork_ns(unsigned int flags);
