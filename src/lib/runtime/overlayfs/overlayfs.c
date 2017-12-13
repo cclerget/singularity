@@ -122,9 +122,9 @@ int _singularity_runtime_overlayfs(void) {
             }
 
             singularity_priv_escalate();
-            singularity_message(DEBUG, "Mounting overlay tmpfs: %s\n", overlay_mount);
-            if ( singularity_mount("tmpfs", overlay_mount, "tmpfs", MS_NOSUID | MS_NODEV, size) < 0 ){
-                singularity_message(ERROR, "Failed to mount overlay tmpfs %s: %s\n", overlay_mount, strerror(errno));
+            singularity_message(DEBUG, "Mounting overlay ramfs: %s\n", overlay_mount);
+            if ( singularity_mount("ramfs", overlay_mount, "ramfs", MS_NOSUID | MS_NODEV, size) < 0 ){
+                singularity_message(ERROR, "Failed to mount overlay ramfs %s: %s\n", overlay_mount, strerror(errno));
                 ABORT(255);
             }
             singularity_priv_drop();
