@@ -7,15 +7,12 @@
  * 
  */
 
-#ifndef __SINGULARITY_SIGNAL_H_
-#define __SINGULARITY_SIGNAL_H_
 
-void singularity_install_signal_handler();
+#ifndef __SINGULARITY_EVENT_CLEANUP_H_
+#define __SINGULARITY_EVENT_CLEANUP_H_
 
-int singularity_handle_signals(siginfo_t *siginfo);
+#include "../event.h"
 
-void singularity_unblock_signals();
-
-void singularity_set_parent_death_signal(int);
+int cleanup_event_exit(struct singularity_event *, pid_t);
 
 #endif

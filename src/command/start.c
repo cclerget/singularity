@@ -38,6 +38,7 @@
 #include "util/sessiondir.h"
 #include "util/daemon.h"
 #include "util/signal.h"
+#include "util/proc_notify.h"
 
 #include "./action-lib/include.h"
 
@@ -84,6 +85,10 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     singularity_runtime_enter();
     singularity_priv_drop_perm();
 
+    singularity_set_parent_death_signal(SIGKILL);
+
+    close(image.fd);
+
     if ( envclean() != 0 ) {
         singularity_message(ERROR, "Failed sanitizing the environment\n");
         ABORT(255);
@@ -107,7 +112,7 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
             while( poll(&pfd, 1, 1000) >= 0 ) {
                 if ( pfd.revents == POLLHUP ) break;
             }
-            singularity_signal_go_ahead(0);
+            proc_notify_send(NOTIFY_DETACH);
 
             /* wait /sbin/init install signal handler */
             usleep(20000);
@@ -128,12 +133,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         }
     }
 
-    /* set program name */
-    if ( prctl(PR_SET_NAME, "sinit", 0, 0, 0) < 0 ) {
-        singularity_message(ERROR, "Failed to set program name\n");
-        ABORT(255);
-    }
-
     singularity_install_signal_handler();
 
     /* set program name */
@@ -142,14 +141,13 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         ABORT(255);
     }
 
-    /* we have enough room to set argv[0] since it set to singularity-instance: user[name] */
+    /* we have enough room to set argv[0] since it was set to singularity-instance: user[name] */
     memset(argv[0], 0, strlen(argv[0]));
     sprintf(argv[0], "[sinit]");
 
     child = fork();
     
     if ( child == 0 ) {
-
         /* Unblock signals and execute startscript */
         singularity_unblock_signals();
         if ( is_exec("/.singularity.d/actions/start") == 0 ) {
@@ -164,7 +162,6 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
             kill(1, SIGCONT);
         }
     } else if ( child > 0 ) {
-
         singularity_message(DEBUG, "Waiting for signals\n");
         /* send a SIGALRM if start script doesn't send SIGCONT within 1 seconds */
         alarm(1);
@@ -180,7 +177,8 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
                 }
             } else if ( siginfo.si_signo == SIGCONT && siginfo.si_pid == 2 ) {
                 /* start script correctly exec */
-                singularity_signal_go_ahead(0);
+                proc_notify_send(NOTIFY_DETACH);
+                singularity_message(DEBUG, "Child started, become daemon\n");
                 started = 1;
             } else if ( siginfo.si_signo == SIGALRM && started == 0 ) {
                 /* don't receive SIGCONT, start script modified/replaced ? */

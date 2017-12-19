@@ -41,8 +41,6 @@ extern const char *__progname;
 static void message_init(void) {
     char *messagelevel_string = getenv("SINGULARITY_MESSAGELEVEL"); // Flawfinder: ignore (need to get string, validation in atol())
 
-    openlog("Singularity", LOG_CONS | LOG_NDELAY, LOG_LOCAL0);
-
     if ( messagelevel_string == NULL ) {
         messagelevel = 5;
         singularity_message(DEBUG, "SINGULARITY_MESSAGELEVEL undefined, setting level 5 (debug)\n");

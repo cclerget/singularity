@@ -86,6 +86,8 @@ int singularity_command_action(int argc, char **argv, unsigned int namespaces) {
     
     singularity_priv_drop_perm();
 
+    singularity_set_parent_death_signal(SIGKILL);
+
     if ( singularity_registry_get("CONTAIN") != NULL ) {
         singularity_message(DEBUG, "Attempting to chdir to home: %s\n", singularity_priv_home());
         if ( chdir(singularity_priv_home()) != 0 ) {

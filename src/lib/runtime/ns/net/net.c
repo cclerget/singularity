@@ -31,6 +31,7 @@
 #include "util/registry.h"
 #include "util/daemon.h"
 #include "util/setns.h"
+#include "util/proc_notify.h"
 
 
 static int enabled = -1;
@@ -60,6 +61,13 @@ int _singularity_runtime_ns_net(void) {
     return(0);
 #endif
 
+    proc_notify_send(NOTIFY_SET_NETNS);
+    if ( proc_notify_recv() == NOTIFY_ERROR ) {
+        singularity_message(DEBUG, "Failed to setup network namespace\n");
+    } else {
+        singularity_message(DEBUG, "Success\n");
+    }
+
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if ( sockfd < 0 ) {
@@ -79,7 +87,9 @@ int _singularity_runtime_ns_net(void) {
         ABORT(255);
     }
     singularity_priv_drop();
-    
+
+    close(sockfd);
+
     return(0);
 }
 

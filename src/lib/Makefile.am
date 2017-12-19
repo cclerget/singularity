@@ -1,4 +1,4 @@
-SUBDIRS = runtime image sif signing
+SUBDIRS = runtime image sif signing event
 
 MAINTAINERCLEANFILES = Makefile.in config.h config.h.in
 DISTCLEANFILES = Makefile

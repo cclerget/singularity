@@ -28,8 +28,8 @@ image_type_SOURCES = image-type.c util/util.c util/message.c util/config_parser.
 image_type_LDADD = lib/image/libsingularity-image.la lib/sif/libsingularity-sif.la -luuid
 image_type_CPPFLAGS = $(AM_CPPFLAGS)
 
-wrapper_SOURCES = wrapper.c util/util.c util/file.c util/registry.c util/suid.c util/privilege.c util/capability.c
-wrapper_LDADD = lib/image/libsingularity-image.la lib/runtime/libsingularity-runtime.la lib/sif/libsingularity-sif.la command/libcommand.la -luuid
+wrapper_SOURCES = wrapper.c util/util.c util/file.c util/registry.c util/suid.c util/privilege.c util/capability.c util/proc_notify.c
+wrapper_LDADD = lib/image/libsingularity-image.la lib/runtime/libsingularity-runtime.la lib/sif/libsingularity-sif.la command/libcommand.la lib/event/libsingularity-event.la -luuid
 wrapper_CPPFLAGS = $(AM_CPPFLAGS)
 
 wrapper_suid_SOURCES = $(wrapper_SOURCES)

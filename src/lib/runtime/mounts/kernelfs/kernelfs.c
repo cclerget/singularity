@@ -89,7 +89,6 @@ int _singularity_runtime_mount_kernelfs(void) {
         singularity_message(VERBOSE, "Skipping /proc mount\n");
     }
 
-
     // Mount /sys if we are configured
     singularity_message(DEBUG, "Checking configuration file for 'mount sys'\n");
     if ( singularity_config_get_bool(MOUNT_SYS) > 0 ) {

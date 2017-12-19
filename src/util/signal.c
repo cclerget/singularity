@@ -21,38 +21,23 @@
 #include "util/util.h"
 #include "util/signal.h"
 #include "util/fork.h"
+#include "util/proc_notify.h"
 
 static sigset_t old_mask;
 static sigset_t sig_mask;
 
-static const int all_signals[] = {
-    SIGHUP,
-    SIGINT,
-    SIGQUIT,
-    SIGTRAP,
-    SIGIOT,
-    SIGUSR1,
-    SIGUSR2,
-    SIGPIPE,
-    SIGALRM,
-    SIGTERM,
-    SIGSTKFLT,
-    SIGCHLD,
-    SIGCONT,
-    SIGTSTP,
-    SIGTTIN,
-    SIGTTOU,
-    SIGURG,
-    SIGXCPU,
-    SIGXFSZ,
-    SIGVTALRM,
-    SIGPROF,
-    SIGWINCH,
-    SIGIO,
-    SIGPOLL,
-    SIGPWR,
-    SIGSYS
-};
+void singularity_set_parent_death_signal(int signo) {
+    if ( prctl(PR_SET_PDEATHSIG, signo) < 0 ) {
+        singularity_message(ERROR, "Failed to set parent death signal\n");
+        ABORT(255);
+    }
+
+    /* check if parent is alive */
+    if ( proc_notify_send(NOTIFY_OK) < 0 ) {
+        singularity_message(ERROR, "Parent died, exiting\n");
+        ABORT(255);
+    }
+}
 
 static void handle_sig_sigchld(siginfo_t *siginfo) {
     while(1) {
@@ -68,15 +53,9 @@ static void handle_sig_generic(siginfo_t *siginfo) {
 }
 
 void singularity_install_signal_handler() {
-    int i = 0;
-
     singularity_message(DEBUG, "Creating signal handler\n");
-    
-    sigemptyset(&sig_mask);
-    while( all_signals[i] != 0 ) {
-        sigaddset(&sig_mask, all_signals[i]);
-        ++i;
-    }
+
+    sigfillset(&sig_mask);
 
     if ( -1 == sigprocmask(SIG_SETMASK, &sig_mask, &old_mask) ) {
         singularity_message(ERROR, "Unable to block signals: %s\n", strerror(errno));

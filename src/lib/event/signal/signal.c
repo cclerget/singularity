@@ -1,0 +1,81 @@
+/* 
+ * Copyright (c) 2017, SingularityWare, LLC. All rights reserved.
+ * 
+ * This software is licensed under a 3-clause BSD license.  Please
+ * consult LICENSE file distributed with the sources of this project regarding
+ * your rights to use or distribute this software.
+ * 
+ */
+
+#define _GNU_SOURCE
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/epoll.h>
+#include <signal.h>
+#include <sys/signalfd.h>
+
+#include "./signalev.h"
+
+#include "util/registry.h"
+#include "util/message.h"
+#include "util/config_parser.h"
+
+
+static sigset_t sig_mask;
+
+int signal_event_init(struct singularity_event *event, pid_t child) {
+    int fd;
+
+    singularity_message(DEBUG, "Creating signal handler\n");
+
+    sigfillset(&sig_mask);
+
+    if ( sigprocmask(SIG_SETMASK, &sig_mask, NULL) == -1 ) {
+        singularity_message(ERROR, "Unable to block signals: %s\n", strerror(errno));
+        return(255);
+    }
+
+    fd = signalfd(-1, &sig_mask, 0);
+    if ( fd < 0 ) {
+        singularity_message(ERROR, "Failed to set signal handler: %s\n", strerror(errno));
+        return(255);
+    }
+
+    event->fd = fd;
+    return(0);
+}
+
+int signal_event_call(struct singularity_event *event, pid_t child) {
+    int retval;
+    int fd = event->fd;
+    struct signalfd_siginfo siginfo;
+
+    if ( read(fd, &siginfo, sizeof(struct signalfd_siginfo)) != sizeof(struct signalfd_siginfo) ) {
+        singularity_message(ERROR, "Failed to read siginfo: %s\n", strerror(errno));
+        return EVENT_EXIT(255);
+    }
+
+    if ( siginfo.ssi_signo == SIGCHLD ) {
+        while(1) {
+            if ( waitpid(siginfo.ssi_pid, NULL, WNOHANG) <= 0 ) break;
+        }
+        if ( WIFEXITED(siginfo.ssi_status) ) {
+            retval = WEXITSTATUS(siginfo.ssi_status);
+            return EVENT_EXIT(retval);
+        } else if ( WIFSIGNALED(siginfo.ssi_status) ) {
+            return EVENT_SIGNAL(255);
+        }
+    }
+
+    if ( siginfo.ssi_signo == SIGCONT ) {
+        return(0);
+    }
+
+    /* all other signal cause exit */
+    return EVENT_EXIT(255);
+}

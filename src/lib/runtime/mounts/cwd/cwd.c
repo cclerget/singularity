@@ -96,7 +96,7 @@ int _singularity_runtime_mount_cwd(void) {
         return(0);
     }
 
-    singularity_message(DEBUG, "Checking if cwd is in an operating system directory\n");
+    singularity_message(DEBUG, "Checking if cwd %s is in an operating system directory\n", cwd_path);
     if ( ( strcmp(cwd_path, "/") == 0 ) ||
          ( strcmp(cwd_path, "/bin") == 0 ) ||
          ( strcmp(cwd_path, "/etc") == 0 ) ||

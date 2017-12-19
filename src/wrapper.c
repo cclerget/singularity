@@ -21,7 +21,8 @@
 #include <sys/socket.h>
 #include <signal.h>
 #include <sched.h>
-#include <poll.h>
+#include <sys/socket.h>
+#include <sys/eventfd.h>
 
 #include "config.h"
 #include "util/file.h"
@@ -33,9 +34,11 @@
 #include "util/privilege.h"
 #include "util/suid.h"
 #include "util/signal.h"
+#include "util/proc_notify.h"
 #include "lib/image/image.h"
 #include "lib/runtime/runtime.h"
 #include "command/command.h"
+#include "lib/event/event.h"
 
 #ifndef SYSCONFDIR
 #error SYSCONFDIR not defined
@@ -50,6 +53,8 @@
 #define CMD_NOFORK      CMD_BS(0)
 #define CMD_FORK        CMD_BS(1)
 #define CMD_DAEMON      CMD_BS(2)
+
+#define BOOTED          0xB007ED
 
 extern char **environ;
 
@@ -143,54 +148,6 @@ struct cmd_wrapper cmd_wrapper[] = {
     }
 };
 
-int sync_pipe[2];
-int pipe_size;
-
-static void start_fork_sync(void) {
-    if ( pipe(sync_pipe) < 0 ) {
-        singularity_message(ERROR, "Can't install fork sync pipe\n");
-        ABORT(255);
-    }
-}
-
-static void wait_parent(void) {
-    struct pollfd pfd;
-
-    /*
-       this will be reset on next uid change, so a race persist if
-       parent die during child initialization
-     */
-    if ( prctl(PR_SET_PDEATHSIG, SIGKILL) < 0 ) {
-        singularity_message(ERROR, "Failed to parent death signal\n");
-        ABORT(255);
-    }
-
-    close(sync_pipe[1]);
-
-    pfd.fd = sync_pipe[0];
-    pfd.events = POLLIN;
-    pfd.revents = 0;
-
-    while( poll(&pfd, 1, 1000) >= 0 ) {
-        /* waiting parent breaks the pipe */
-        if ( pfd.revents & POLLHUP ) {
-            break;
-        }
-    }
-    if ( ! (pfd.revents & POLLIN) ) {
-        kill(getpid(), SIGKILL);
-    }
-    close(sync_pipe[0]);
-}
-
-static void start_child(void) {
-    close(sync_pipe[0]);
-    if ( write(sync_pipe[1], "go", 2) != 2 ) {
-        singularity_message(ERROR, "Failed to send child sync\n");
-        ABORT(255);
-    }
-    close(sync_pipe[1]);
-}
 
 int main(int argc, char **argv) {
     int index;
@@ -246,7 +203,7 @@ int main(int argc, char **argv) {
     } else if ( cmd_wrapper[index].cmdflags & CMD_FORK ) {
         pid_t child;
 
-        start_fork_sync();
+        proc_notify_init();
 
         singularity_runtime_ns(SR_NS_PID);
         cmd_wrapper[index].nsflags &= ~SR_NS_PID;
@@ -259,53 +216,65 @@ int main(int argc, char **argv) {
             child = fork();
         }
         if ( child == 0 ) {
-            wait_parent();
+            proc_notify_child_init();
+
+            /* wait parent notification before continue */
+            if ( proc_notify_recv() != NOTIFY_CONTINUE ) {
+                singularity_message(ERROR, "Received bad notification\n");
+                ABORT(255);
+            }
 
             return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else if ( child > 0 ) {
-            int status;
-            int retval = -1;
-            char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
+            int code;
 
-            start_child();
+            singularity_event_init(child);
+
+            proc_notify_parent_init();
+            /* notify child to continue execution */
+            proc_notify_send(NOTIFY_CONTINUE);
 
             while(1) {
-                waitpid(child, &status, 0);
-                if ( WIFEXITED(status) || WIFSIGNALED(status) ) {
-                    retval = WEXITSTATUS(status);
+                code = singularity_event_call(child);
+                if ( EVENT_EXITED(code) || EVENT_SIGNALED(code) ) {
                     break;
                 }
             }
-            if ( cleanup_dir ) {
-                if ( s_rmdir(cleanup_dir) < 0 ) {
-                    singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
-                }
-            }
-            if ( WIFSIGNALED(status) ) {
+
+            singularity_event_exit(child);
+
+            if ( EVENT_SIGNALED(code) ) {
                 kill(getpid(), SIGKILL);
             }
-            return(retval);
+
+            return(EVENT_CODE(code));
         }
     } else if ( cmd_wrapper[index].cmdflags & CMD_DAEMON ) {
         struct tempfile *stdout_log, *stderr_log;
         pid_t grandchild;
         pid_t child;
         int i;
-        struct stat filestat;
+        int efd = eventfd(0, 0);
 
         stdout_log = make_logfile("stdout");
         stderr_log = make_logfile("stderr");
 
-        grandchild = singularity_fork(0);
+        grandchild = fork();
 
         if ( grandchild > 0 ) {
-            int code = singularity_wait_for_go_ahead();
             char *buffer;
             FILE *errlog;
+            eventfd_t status;
+            int code;
 
-            if ( code == 0 ) {
+            eventfd_read(efd, &status);
+            code = (int)status;
+
+            if ( code == BOOTED ) {
                 singularity_message(DEBUG, "Successfully spawned daemon, waiting for signal_go_ahead from child\n");
                 return(0);
+            } else {
+                singularity_message(ERROR, "Failed to spawn daemon process\n");
             }
 
             /* display error log */
@@ -326,6 +295,7 @@ int main(int argc, char **argv) {
             }
 
             fclose(errlog);
+            free(buffer);
 
             unlink(stdout_log->filename);
             unlink(stderr_log->filename);
@@ -335,8 +305,6 @@ int main(int argc, char **argv) {
             singularity_message(ERROR, "Failed to spawn daemon process\n");
             ABORT(255);
         }
-
-        start_fork_sync();
 
         singularity_runtime_ns(SR_NS_PID);
         cmd_wrapper[index].nsflags &= ~SR_NS_PID;
@@ -370,13 +338,13 @@ int main(int argc, char **argv) {
         /* Close all open fd's that may be present */
         singularity_message(DEBUG, "Closing open fd's\n");
         for( i = sysconf(_SC_OPEN_MAX); i > 2; i-- ) {
-            if ( fstat(i, &filestat) == 0 ) {
-                if ( S_ISFIFO(filestat.st_mode) != 0 ) {
-                    continue;
-                }
+            if ( i == efd ) {
+                continue;
             }
             close(i);
         }
+
+        proc_notify_init();
 
         if ( singularity_registry_get("PIDNS_ENABLED") ) {
             singularity_priv_escalate();
@@ -387,37 +355,53 @@ int main(int argc, char **argv) {
         }
 
         if ( child == 0 ) {
-            wait_parent();
+
+            close(efd);
+            proc_notify_child_init();
+
+            if ( proc_notify_recv() != NOTIFY_CONTINUE ) {
+                singularity_message(ERROR, "Received bad notification\n");
+                ABORT(255);
+            }
 
             return(cmd_wrapper[index].function(argc, argv, cmd_wrapper[index].nsflags));
         } else {
-            int status;
-            int retval = -1;
-            char *cleanup_dir = singularity_registry_get("CLEANUPDIR");
+            int code;
 
-            start_child();
+            singularity_event_init(child);
+
+            proc_notify_parent_init();
+            proc_notify_send(NOTIFY_CONTINUE);
 
             while(1) {
-                waitpid(child, &status, 0);
-                if ( WIFEXITED(status) || WIFSIGNALED(status) ) {
-                    retval = WEXITSTATUS(status);
+                code = singularity_event_call(child);
+                if ( EVENT_NOTIFIED(code) && EVENT_CODE(code) == NOTIFY_DETACH ) {
+                    eventfd_write(efd, (eventfd_t)BOOTED);
+                    close(efd);
+                    efd = -1;
+                }
+                if ( EVENT_EXITED(code) || EVENT_SIGNALED(code) ) {
                     break;
                 }
             }
 
-            if ( cleanup_dir ) {
-                if ( s_rmdir(cleanup_dir) < 0 ) {
-                    singularity_message(WARNING, "Can't delete cleanup dir %s\n", cleanup_dir);
+            singularity_event_exit(child);
+
+            if ( EVENT_EXITED(code) ) {
+                if ( efd >= 0 && EVENT_CODE(code) ) {
+                    eventfd_write(efd, (eventfd_t)EVENT_CODE(code));
+                } else if ( efd >= 0 ) {
+                    eventfd_write(efd, (eventfd_t)BOOTED);
+                    unlink(stdout_log->filename);
+                    unlink(stderr_log->filename);
                 }
             }
-
-            if ( WIFEXITED(status) ) {
-                singularity_signal_go_ahead(retval);
-            } else {
+            if ( EVENT_SIGNALED(code) ) {
                 unlink(stdout_log->filename);
                 unlink(stderr_log->filename);
             }
-            return(retval);
+
+            return(EVENT_CODE(code));
         }
     }
 

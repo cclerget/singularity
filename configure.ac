@@ -434,6 +434,10 @@ AC_CONFIG_FILES([
    src/lib/image/sif/Makefile
    src/lib/sif/Makefile
    src/lib/signing/Makefile
+   src/lib/event/Makefile
+   src/lib/event/signal/Makefile
+   src/lib/event/cleanup/Makefile
+   src/lib/event/notify/Makefile
    src/command/Makefile
    src/command/action-lib/Makefile
    src/bootstrap-lib/Makefile
