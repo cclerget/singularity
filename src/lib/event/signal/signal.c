@@ -59,13 +59,14 @@ int signal_event_call(struct singularity_event *event, pid_t child) {
     }
 
     if ( siginfo.ssi_signo == SIGCHLD ) {
+        int status;
         while(1) {
-            if ( waitpid(siginfo.ssi_pid, NULL, WNOHANG) <= 0 ) break;
+            if ( waitpid(siginfo.ssi_pid, &status, WNOHANG) <= 0 ) break;
         }
-        if ( WIFEXITED(siginfo.ssi_status) ) {
-            retval = WEXITSTATUS(siginfo.ssi_status);
+        if ( WIFEXITED(status) ) {
+            retval = WEXITSTATUS(status);
             return EVENT_EXIT(retval);
-        } else if ( WIFSIGNALED(siginfo.ssi_status) ) {
+        } else if ( WIFSIGNALED(status) ) {
             return EVENT_SIGNAL(255);
         }
     }

@@ -239,7 +239,7 @@ int main(int argc, char **argv) {
             proc_notify_parent_init();
             /* notify child to continue execution */
             proc_notify_send(NOTIFY_CONTINUE);
-exit(0);
+
             while(1) {
                 code = singularity_event_call(child);
                 if ( EVENT_EXITED(code) || EVENT_SIGNALED(code) ) {
