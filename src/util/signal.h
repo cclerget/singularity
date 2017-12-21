@@ -10,12 +10,14 @@
 #ifndef __SINGULARITY_SIGNAL_H_
 #define __SINGULARITY_SIGNAL_H_
 
-void singularity_install_signal_handler();
+#include <signal.h>
+#include <sys/signalfd.h>
 
-int singularity_handle_signals(siginfo_t *siginfo);
-
-void singularity_unblock_signals();
-
+int singularity_wait_signals(sigset_t, siginfo_t *);
+void singularity_mask_signals(sigset_t *, sigset_t *);
 void singularity_set_parent_death_signal(int);
+void singularity_set_signal_handler(int, void (*)(int, siginfo_t *, void *));
+int singularity_set_signalfd(sigset_t);
+int singularity_wait_signalfd(int, struct signalfd_siginfo *);
 
 #endif

@@ -54,6 +54,8 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     struct image_object image;
     pid_t child;
     siginfo_t siginfo;
+    sigset_t sigmask;
+    sigset_t oldsigmask;
 
     /* At this point, we are running as PID 1 inside PID NS */
     singularity_message(DEBUG, "Preparing sinit daemon\n");
@@ -133,7 +135,9 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         }
     }
 
-    singularity_install_signal_handler();
+    /* handle all signals */
+    sigfillset(&sigmask);
+    singularity_mask_signals(&sigmask, &oldsigmask);
 
     /* set program name */
     if ( prctl(PR_SET_NAME, "[sinit]", 0, 0, 0) < 0 ) {
@@ -146,10 +150,11 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
     sprintf(argv[0], "[sinit]");
 
     child = fork();
-    
+
     if ( child == 0 ) {
         /* Unblock signals and execute startscript */
-        singularity_unblock_signals();
+        singularity_mask_signals(&oldsigmask, NULL);
+
         if ( is_exec("/.singularity.d/actions/start") == 0 ) {
             singularity_message(DEBUG, "Exec'ing /.singularity.d/actions/start\n");
 
@@ -166,12 +171,15 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
         /* send a SIGALRM if start script doesn't send SIGCONT within 1 seconds */
         alarm(1);
         while (1) {
-            if ( singularity_handle_signals(&siginfo) < 0 ) {
+            if ( singularity_wait_signals(sigmask, &siginfo) < 0 ) {
                 singularity_message(ERROR, "Failed to handle signals\n");
                 ABORT(255);
             }
             if ( siginfo.si_signo == SIGCHLD ) {
                 singularity_message(DEBUG, "Child exited\n");
+                while (1) {
+                    if ( waitpid(-1, NULL, WNOHANG) <= 0 ) break;
+                }
                 if ( siginfo.si_pid == 2 && siginfo.si_status == CHILD_FAILED ) {
                     ABORT(255);
                 }
@@ -184,6 +192,10 @@ int singularity_command_start(int argc, char **argv, unsigned int namespaces) {
                 /* don't receive SIGCONT, start script modified/replaced ? */
                 singularity_message(ERROR, "Start script doesn't send SIGCONT\n");
                 ABORT(255);
+            } else {
+                singularity_message(DEBUG, "Generic sig received: %d\n", siginfo.si_signo);
+                /* forward signals to childs */
+                kill(-1,  siginfo.si_signo);
             }
         }
     } else {

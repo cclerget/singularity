@@ -28,7 +28,6 @@ struct singularity_event {
     int (*exit)(struct singularity_event *, pid_t);
     int (*call)(struct singularity_event *, pid_t);
     int fd;
-    int events;
 };
 
 int singularity_event_init(pid_t);

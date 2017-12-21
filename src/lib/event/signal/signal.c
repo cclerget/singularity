@@ -17,16 +17,17 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <signal.h>
-#include <sys/signalfd.h>
 
-#include "./signalev.h"
+#include "signalev.h"
 
+#include "util/util.h"
+#include "util/signal.h"
 #include "util/registry.h"
 #include "util/message.h"
 #include "util/config_parser.h"
 
 
-static sigset_t sig_mask;
+sigset_t sig_mask;
 
 int signal_event_init(struct singularity_event *event, pid_t child) {
     int fd;
@@ -34,19 +35,16 @@ int signal_event_init(struct singularity_event *event, pid_t child) {
     singularity_message(DEBUG, "Creating signal handler\n");
 
     sigfillset(&sig_mask);
+    singularity_mask_signals(&sig_mask, NULL);
 
-    if ( sigprocmask(SIG_SETMASK, &sig_mask, NULL) == -1 ) {
-        singularity_message(ERROR, "Unable to block signals: %s\n", strerror(errno));
-        return(255);
-    }
-
-    fd = signalfd(-1, &sig_mask, 0);
+    fd = singularity_set_signalfd(sig_mask);
     if ( fd < 0 ) {
         singularity_message(ERROR, "Failed to set signal handler: %s\n", strerror(errno));
-        return(255);
+        ABORT(255);
     }
 
     event->fd = fd;
+
     return(0);
 }
 
@@ -55,7 +53,7 @@ int signal_event_call(struct singularity_event *event, pid_t child) {
     int fd = event->fd;
     struct signalfd_siginfo siginfo;
 
-    if ( read(fd, &siginfo, sizeof(struct signalfd_siginfo)) != sizeof(struct signalfd_siginfo) ) {
+    if ( singularity_wait_signalfd(fd, &siginfo) < 0 ) {
         singularity_message(ERROR, "Failed to read siginfo: %s\n", strerror(errno));
         return EVENT_EXIT(255);
     }

@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#include "util/util.h"
 #include "util/registry.h"
 #include "util/message.h"
 #include "util/config_parser.h"
@@ -35,21 +36,18 @@ struct singularity_event events[] = {
         .call   = signal_event_call,
         .exit   = NULL,
         .fd     = -1,
-        .events = EPOLLIN
     },{
         .name   = "cleanup",
         .init   = NULL,
         .call   = NULL,
         .exit   = cleanup_event_exit,
         .fd     = -1,
-        .events = 0
     },{
         .name   = "notify",
         .init   = notify_event_init,
         .call   = notify_event_call,
         .exit   = notify_event_exit,
         .fd     = -1,
-        .events = EPOLLIN
     }
 };
 

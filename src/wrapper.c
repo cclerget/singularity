@@ -148,6 +148,11 @@ struct cmd_wrapper cmd_wrapper[] = {
     }
 };
 
+static volatile int grandchild_exit = 0;
+
+void catch_child_signal(int signo, siginfo_t *siginfo, void *unused) {
+    grandchild_exit = 1;
+}
 
 int main(int argc, char **argv) {
     int index;
@@ -216,6 +221,7 @@ int main(int argc, char **argv) {
             child = fork();
         }
         if ( child == 0 ) {
+
             proc_notify_child_init();
 
             /* wait parent notification before continue */
@@ -233,7 +239,7 @@ int main(int argc, char **argv) {
             proc_notify_parent_init();
             /* notify child to continue execution */
             proc_notify_send(NOTIFY_CONTINUE);
-
+exit(0);
             while(1) {
                 code = singularity_event_call(child);
                 if ( EVENT_EXITED(code) || EVENT_SIGNALED(code) ) {
@@ -254,7 +260,7 @@ int main(int argc, char **argv) {
         pid_t grandchild;
         pid_t child;
         int i;
-        int efd = eventfd(0, 0);
+        int efd = eventfd(0, EFD_NONBLOCK);
 
         stdout_log = make_logfile("stdout");
         stderr_log = make_logfile("stderr");
@@ -264,11 +270,21 @@ int main(int argc, char **argv) {
         if ( grandchild > 0 ) {
             char *buffer;
             FILE *errlog;
-            eventfd_t status;
+            eventfd_t status = 0;
             int code;
 
-            eventfd_read(efd, &status);
-            code = (int)status;
+            singularity_set_signal_handler(SIGCHLD, &catch_child_signal);
+
+            while ( grandchild_exit == 0 ) {
+                eventfd_read(efd, &status);
+                if ( status != 0 ) break;
+            }
+
+            if ( status == 0 ) {
+                code = 255;
+            } else {
+                code = (int)status;
+            }
 
             if ( code == BOOTED ) {
                 singularity_message(DEBUG, "Successfully spawned daemon, waiting for signal_go_ahead from child\n");
@@ -302,7 +318,7 @@ int main(int argc, char **argv) {
 
             return(code);
         } else if ( grandchild < 0 ) {
-            singularity_message(ERROR, "Failed to spawn daemon process\n");
+            singularity_message(ERROR, "Failed to create daemon process\n");
             ABORT(255);
         }
 
