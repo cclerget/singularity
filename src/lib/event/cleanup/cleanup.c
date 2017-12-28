@@ -22,7 +22,20 @@
 #include "util/config_parser.h"
 
 
-int cleanup_event_exit(struct singularity_event *event, pid_t child) {
+static int cleanup_event_exit(pid_t child);
+
+static struct singularity_event cleanup_event = {
+    .name = "cleanup",
+    .call = NULL,
+    .exit = cleanup_event_exit,
+    .fd   = -1,
+};
+
+int cleanup_event_init(pid_t child) {
+    return singularity_event_register(&cleanup_event);
+}
+
+static int cleanup_event_exit(pid_t child) {
     char *dir = singularity_registry_get("CLEANUPDIR");
     if ( dir ) {
         if ( s_rmdir(dir) < 0 ) {

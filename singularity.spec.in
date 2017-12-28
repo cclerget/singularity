@@ -109,9 +109,8 @@ rm -rf $RPM_BUILD_ROOT
 
 # Binaries
 %{_libexecdir}/singularity/bin/builddef
-%{_libexecdir}/singularity/bin/cleanupd
 %{_libexecdir}/singularity/bin/get-section
-%{_libexecdir}/singularity/bin/mount
+%{_libexecdir}/singularity/bin/wrapper
 %{_libexecdir}/singularity/bin/image-type
 %{_libexecdir}/singularity/bin/sif
 
@@ -140,12 +139,11 @@ rm -rf $RPM_BUILD_ROOT
 %{_libexecdir}/singularity/cli/sign.*
 %{_libexecdir}/singularity/cli/verify.*
 %{_libexecdir}/singularity/cli/siflist.*
-%{_libexecdir}/singularity/bin/action
-%{_libexecdir}/singularity/bin/start
 %{_libexecdir}/singularity/bin/image-type
 %{_libexecdir}/singularity/bin/wrapper
 %{_libexecdir}/singularity/functions
 %{_libexecdir}/singularity/capabilities
+%{_libexecdir}/singularity/network
 %dir %{_sysconfdir}/singularity
 %config(noreplace) %{_sysconfdir}/singularity/*
 %dir %{_sysconfdir}/singularity/capabilities

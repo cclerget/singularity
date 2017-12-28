@@ -96,6 +96,11 @@ static __u32 minimal_capabilities[] = {
     NO_CAP
 };
 
+static __u32 net_capabilities[] = {
+    CAP_NET_ADMIN,
+    NO_CAP
+};
+
 enum {
     ROOT_DEFCAPS_FULL,
     ROOT_DEFCAPS_FILE,
@@ -477,6 +482,15 @@ void singularity_capability_init_default(void) {
 /* for build stage 2 */
 void singularity_capability_init_minimal(void) {
     singularity_capability_set(array2cap(minimal_capabilities), 1);
+    unsetenv("SINGULARITY_ADD_CAPS");
+    unsetenv("SINGULARITY_DROP_CAPS");
+    unsetenv("SINGULARITY_NO_PRIVS");
+    unsetenv("SINGULARITY_KEEP_PRIVS");
+}
+
+void singularity_capability_init_network(void) {
+    unsigned long long final_caps = array2cap(net_capabilities);
+    singularity_capability_set(final_caps, 0);
     unsetenv("SINGULARITY_ADD_CAPS");
     unsetenv("SINGULARITY_DROP_CAPS");
     unsetenv("SINGULARITY_NO_PRIVS");

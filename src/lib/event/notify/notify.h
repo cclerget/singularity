@@ -13,8 +13,6 @@
 
 #include "../event.h"
 
-int notify_event_init(struct singularity_event *, pid_t);
-int notify_event_call(struct singularity_event *, pid_t);
-int notify_event_exit(struct singularity_event *, pid_t);
+int notify_event_init(pid_t);
 
 #endif

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+
+if [ ! -z "$1" ]; then
+    # host network namespace
+    ip link add dev sbr0 type bridge || (brctl addbr sbr0)
+    ip link set sbr0 up
+    ip link add name "seth$1" mtu 1500 type veth peer name geth0
+    ip link set "seth$1" master sbr0 || (brctl addif sbr0 seth$1)
+    ip link set geth0 netns $1
+    ip link set dev "seth$1" up
+    exit $!
+fi
+
+# executed in container network namespace
+ip link set geth0 name eth0
+ip link set dev eth0 up
+ip addr add 192.168.1.141/24 broadcast 192.168.1.255 dev eth0
+ip route add default via 192.168.1.1

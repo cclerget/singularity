@@ -13,7 +13,7 @@
 
 #include "../event.h"
 
-int signal_event_init(struct singularity_event *, pid_t);
-int signal_event_call(struct singularity_event *, pid_t);
+int signal_event_init(pid_t);
+void singularity_event_signal_ignore_child(pid_t);
 
 #endif

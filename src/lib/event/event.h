@@ -24,14 +24,20 @@
 
 struct singularity_event {
     char *name;
-    int (*init)(struct singularity_event *, pid_t);
-    int (*exit)(struct singularity_event *, pid_t);
-    int (*call)(struct singularity_event *, pid_t);
+    int (*exit)(pid_t);
+    int (*call)(pid_t);
     int fd;
+};
+
+struct singularity_event_queue {
+    struct singularity_event *event;
+    struct singularity_event_queue *next;
+    struct singularity_event_queue *prev;
 };
 
 int singularity_event_init(pid_t);
 int singularity_event_call(pid_t);
 int singularity_event_exit(pid_t);
+int singularity_event_register(struct singularity_event *);
 
 #endif

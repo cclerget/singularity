@@ -27,32 +27,55 @@
 #include "./cleanup/cleanup.h"
 #include "./notify/notify.h"
 
-static int epfd;
+static int epfd = -1;
 
-struct singularity_event events[] = {
-    {
-        .name   = "signal",
-        .init   = signal_event_init,
-        .call   = signal_event_call,
-        .exit   = NULL,
-        .fd     = -1,
-    },{
-        .name   = "cleanup",
-        .init   = NULL,
-        .call   = NULL,
-        .exit   = cleanup_event_exit,
-        .fd     = -1,
-    },{
-        .name   = "notify",
-        .init   = notify_event_init,
-        .call   = notify_event_call,
-        .exit   = notify_event_exit,
-        .fd     = -1,
+static struct singularity_event_queue *seqhead = NULL;
+static struct singularity_event_queue *seqtail = NULL;
+
+int singularity_event_register(struct singularity_event *event) {
+    struct epoll_event ee;
+    char *name = event->name;
+    struct singularity_event_queue *seq;
+
+    if ( event == NULL ) {
+        return(-1);
     }
-};
+
+    seq = (struct singularity_event_queue *)malloc(sizeof(struct singularity_event_queue));
+    if ( seq == NULL ) {
+        return(-1);
+    }
+
+    singularity_message(DEBUG, "Registering queue event %s\n", event->name);
+
+    if ( event->fd >= 0 ) {
+        ee.events = EPOLLIN;
+        ee.data.ptr = (void *)event;
+        if ( epoll_ctl(epfd, EPOLL_CTL_ADD, event->fd, &ee) < 0 ) {
+            singularity_message(ERROR, "Failed to add %s to event queue\n", name);
+            return(-1);
+        }
+    }
+
+    seq->event = event;
+    seq->next = NULL;
+
+    if ( seqtail != NULL ) {
+        seqtail->next = seq;
+    }
+    if ( seqhead == NULL ) {
+        seqhead = seq;
+        seqhead->prev = NULL;
+    } else {
+        seq->prev = seqtail;
+    }
+    seqtail = seq;
+
+    return(0);
+}
 
 int singularity_event_init(pid_t child) {
-    int nbevents = (sizeof(events) / sizeof(struct singularity_event)) - 1;
+    int retval = 0;
 
     epfd = epoll_create(1);
     if ( epfd < 0 ) {
@@ -60,26 +83,15 @@ int singularity_event_init(pid_t child) {
         return(-1);
     }
 
-    for ( ; nbevents >= 0; nbevents-- ) {
-        struct epoll_event ee;
-        char *name = events[nbevents].name;
+    retval += signal_event_init(child);
+    retval += cleanup_event_init(child);
+    retval += notify_event_init(child);
 
-        if ( events[nbevents].init == NULL ) {
-            continue;
-        }
-        if ( events[nbevents].init(&events[nbevents], child) < 0 ) {
-            singularity_message(ERROR, "Failed to call init for %s event\n", name);
-            return(-1);
-        }
-        if ( events[nbevents].fd >= 0 ) {
-            ee.events = EPOLLIN;
-            ee.data.ptr = (void *)&events[nbevents];
-            if ( epoll_ctl(epfd, EPOLL_CTL_ADD, events[nbevents].fd, &ee) < 0 ) {
-                singularity_message(ERROR, "Failed to add %s to event queue\n", name);
-                return(-1);
-            }
-        }
+    if ( retval != 0 ) {
+        singularity_message(ERROR, "Event queue init failed\n");
+        return(-1);
     }
+
     return(0);
 }
 
@@ -93,8 +105,8 @@ int singularity_event_call(pid_t child) {
         return EVENT_FAIL(255);
     }
     sev = (struct singularity_event *)ev.data.ptr;
-    
-    retval = sev->call(sev, child);
+
+    retval = sev->call(child);
 
     /* a call which return -1 is automatically discarded from event queue */
     if ( retval < 0 ) {
@@ -109,15 +121,11 @@ int singularity_event_call(pid_t child) {
 }
 
 int singularity_event_exit(pid_t child) {
-    int nbevents = (sizeof(events) / sizeof(struct singularity_event)) - 1;
+    struct singularity_event_queue *current = seqhead;
 
-    for ( ; nbevents >= 0; nbevents-- ) {
-        if ( events[nbevents].exit == NULL ) {
-            continue;
-        }
-        if ( events[nbevents].exit(&events[nbevents], child) < 0 ) {
-            singularity_message(ERROR, "Failed to call exit for %s event\n", events[nbevents].name);
-            return(-1);
+    for ( current = seqhead; current != NULL; current = current->next ) {
+        if ( current->event->exit && current->event->exit(child) < 0 ) {
+            singularity_message(ERROR, "Failed to call exit for %s event\n", current->event->name);
         }
     }
     return(0);

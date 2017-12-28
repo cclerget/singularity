@@ -61,13 +61,6 @@ int _singularity_runtime_ns_net(void) {
     return(0);
 #endif
 
-    proc_notify_send(NOTIFY_SET_NETNS);
-    if ( proc_notify_recv() == NOTIFY_ERROR ) {
-        singularity_message(DEBUG, "Failed to setup network namespace\n");
-    } else {
-        singularity_message(DEBUG, "Success\n");
-    }
-
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if ( sockfd < 0 ) {
@@ -89,6 +82,14 @@ int _singularity_runtime_ns_net(void) {
     singularity_priv_drop();
 
     close(sockfd);
+
+    proc_notify_send(NOTIFY_SET_NETNS);
+    if ( proc_notify_recv() == NOTIFY_ERROR ) {
+        singularity_message(ERROR, "Failed to setup network namespace\n");
+        ABORT(255);
+    } else {
+        singularity_message(DEBUG, "Success\n");
+    }
 
     return(0);
 }

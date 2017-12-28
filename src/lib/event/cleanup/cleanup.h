@@ -13,6 +13,6 @@
 
 #include "../event.h"
 
-int cleanup_event_exit(struct singularity_event *, pid_t);
+int cleanup_event_init(pid_t);
 
 #endif
