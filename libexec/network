@@ -1,19 +1,38 @@
 #!/bin/bash
 
+PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+export PATH
 
-if [ ! -z "$1" ]; then
-    # host network namespace
-    ip link add dev sbr0 type bridge || (brctl addbr sbr0)
-    ip link set sbr0 up
-    ip link add name "seth$1" mtu 1500 type veth peer name geth0
-    ip link set "seth$1" master sbr0 || (brctl addif sbr0 seth$1)
-    ip link set geth0 netns $1
-    ip link set dev "seth$1" up
-    exit $!
+cmd="$SINGULARITY_NETNS_COMMAND"
+pid="$SINGULARITY_NETNS_PID"
+ppid="$SINGULARITY_NETNS_PPID"
+interface="$SINGULARITY_NETNS_IFNAME"
+cnipath="$SINGULARITY_NETNS_CNIPATH"
+confdir="$SINGULARITY_NETNS_CONFDIR"
+conffile="$SINGULARITY_NETNS_CONF"
+conf="$confdir/$conffile"
+net_type="$SINGULARITY_NETNS_TYPE"
+
+if [ -z "$cmd" ]; then
+    echo "Bad command"
+    exit 1
 fi
 
-# executed in container network namespace
-ip link set geth0 name eth0
-ip link set dev eth0 up
-ip addr add 192.168.1.141/24 broadcast 192.168.1.255 dev eth0
-ip route add default via 192.168.1.1
+if [ -z "$pid" ]; then
+    echo "No pid specified"
+    exit 1
+fi
+
+export CNI_COMMAND="$cmd"
+export CNI_CONTAINERID="$pid"
+export CNI_PATH="$cnipath"
+export CNI_IFNAME="$interface"
+
+if [ "$ppid" != 0 ]; then
+    export CNI_NETNS="/proc/$ppid/ns/net"
+else
+    export CNI_NETNS="/proc/$pid/ns/net"
+fi
+
+$cnipath/$net_type < "$conf" > /dev/null
+exit $!

@@ -80,6 +80,8 @@ static __u32 default_capabilities[] = {
     CAP_DAC_READ_SEARCH,
     CAP_DAC_OVERRIDE,
     CAP_AUDIT_WRITE,
+    CAP_NET_RAW,
+    CAP_SYS_MODULE,
     NO_CAP
 };
 
@@ -98,6 +100,12 @@ static __u32 minimal_capabilities[] = {
 
 static __u32 net_capabilities[] = {
     CAP_NET_ADMIN,
+    CAP_NET_RAW,
+    CAP_SYS_MODULE,
+    CAP_SYS_PTRACE,
+    CAP_SYS_ADMIN,
+    CAP_DAC_READ_SEARCH,
+    CAP_DAC_OVERRIDE,
     NO_CAP
 };
 

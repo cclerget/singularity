@@ -22,6 +22,7 @@
 #define EVENT_NOTIFIED(code)    (code & (1 << 10))
 #define EVENT_FAILED(code)      (code & (1 << 11))
 
+typedef struct singularity_event singularity_event;
 struct singularity_event {
     char *name;
     int (*exit)(pid_t);
@@ -29,15 +30,16 @@ struct singularity_event {
     int fd;
 };
 
+typedef struct singularity_event_queue singularity_event_queue;
 struct singularity_event_queue {
-    struct singularity_event *event;
-    struct singularity_event_queue *next;
-    struct singularity_event_queue *prev;
+    singularity_event *event;
+    singularity_event_queue *next;
+    singularity_event_queue *prev;
 };
 
 int singularity_event_init(pid_t);
 int singularity_event_call(pid_t);
 int singularity_event_exit(pid_t);
-int singularity_event_register(struct singularity_event *);
+int singularity_event_register(singularity_event *);
 
 #endif

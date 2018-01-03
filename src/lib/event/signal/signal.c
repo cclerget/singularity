@@ -26,11 +26,6 @@
 #include "util/message.h"
 #include "util/config_parser.h"
 
-
-sigset_t sig_mask;
-
-static pid_t ignored_child = -1;
-
 static int signal_event_call(pid_t child);
 
 static struct singularity_event signal_event = {
@@ -40,11 +35,9 @@ static struct singularity_event signal_event = {
     .fd   = -1,
 };
 
-void singularity_event_signal_ignore_child(pid_t child) {
-    ignored_child = child;
-}
-
 int signal_event_init(pid_t child) {
+    sigset_t sig_mask;
+
     singularity_message(DEBUG, "Creating signal handler\n");
 
     sigfillset(&sig_mask);
@@ -61,7 +54,19 @@ int signal_event_init(pid_t child) {
 static int signal_event_call(pid_t child) {
     int retval;
     struct signalfd_siginfo siginfo;
+/*    sigset_t pending_set;
+    int count = 0, i = 0;
 
+    sigemptyset(&pending_set);
+    sigpending(&pending_set);
+
+    for ( i = 1; i <= SIGRTMAX; i++ ) {
+    if ( sigismember(&pending_set, i) ) {
+        count++;
+        printf("sig: %d\n", i);
+    }
+    }
+    printf("pending signals: %d\n", count);*/
     if ( singularity_wait_signalfd(signal_event.fd, &siginfo) < 0 ) {
         singularity_message(ERROR, "Failed to read siginfo: %s\n", strerror(errno));
         return EVENT_EXIT(255);
@@ -70,13 +75,11 @@ static int signal_event_call(pid_t child) {
     if ( siginfo.ssi_signo == SIGCHLD ) {
         int status;
 
-        if ( siginfo.ssi_pid == ignored_child ) {
-            ignored_child = -1;
-            return(0);
-        }
-
+        singularity_message(DEBUG, "Received child with pid: %d\n", siginfo.ssi_pid);
         while(1) {
-            if ( waitpid(siginfo.ssi_pid, &status, WNOHANG) <= 0 ) break;
+            if ( waitpid(siginfo.ssi_pid, &status, WNOHANG) <= 0 ) {
+                break;
+            }
         }
         if ( siginfo.ssi_pid == child ) {
             if ( WIFEXITED(status) ) {

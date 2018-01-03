@@ -27,6 +27,7 @@
 #include "util/config_parser.h"
 #include "util/proc_notify.h"
 #include "util/capability.h"
+#include "util/network.h"
 
 static int notify_event_call(pid_t child);
 
@@ -37,25 +38,18 @@ static struct singularity_event notify_event = {
     .fd   = -1,
 };
 
-/*
+
 // cleanup host interface/bridge/iptables rules
-static struct singularity_event netns_cleanup_event = {
-    .name = "netns-cleanup",
+static struct singularity_event network_cleanup_event = {
+    .name = "network-cleanup",
     .call = NULL,
-    .exit = singularity_netns_cleanup,
+    .exit = singularity_network_cleanup,
     .fd   = -1
-};*/
+};
 
 int notify_event_init(pid_t child) {
     notify_event.fd = proc_notify_get_fd();
     return singularity_event_register(&notify_event);
-}
-
-static int wait_child(pid_t child) {
-    int status;
-    singularity_event_signal_ignore_child(child);
-    waitpid(child, &status, 0);
-    return WEXITSTATUS(status);
 }
 
 static int notify_event_call(pid_t child) {
@@ -67,33 +61,12 @@ static int notify_event_call(pid_t child) {
     }
 
     if ( notify == NOTIFY_SET_NETNS ) {
-        char *network_script = joinpath(LIBEXECDIR, "/singularity/network");
-        pid_t forked = fork();
-        if ( forked == 0 ) {
-            setresuid(0, 0, 0);
-            setresgid(0, 0, 0);
-            singularity_capability_init_network();
-            execl("/bin/bash", "/bin/bash", "--norc", "--noprofile", "--restricted", network_script, int2str(child), NULL);
-        } else if ( forked > 0 ) {
-            if ( wait_child(forked) == 0 ) {
-                pid_t forked = fork();
-                if ( forked == 0 ) {
-                    char netns[1024];
-                    sprintf(netns, "/proc/%d/ns/net", child);
-                    setresuid(0, 0, 0);
-                    setresgid(0, 0, 0);
-                    int fd = open(netns, O_RDONLY);
-                    setns(fd, CLONE_NEWNET);
-                    close(fd);
-                    singularity_capability_init_network();
-                    execl("/bin/bash", "/bin/bash", "--norc", "--noprofile", "--restricted", network_script, NULL);
-                } else {
-                    if ( wait_child(forked) == 0 )
-                        return proc_notify_send(NOTIFY_OK);
-                }
-            }
+        if ( singularity_network_setup(child) < 0 ) {
+            return proc_notify_send(NOTIFY_ERROR);
         }
-        return proc_notify_send(NOTIFY_ERROR);
+
+        singularity_event_register(&network_cleanup_event);
+        return proc_notify_send(NOTIFY_OK);
     }
     if ( notify == NOTIFY_SET_CGROUP ) {
         return proc_notify_send(NOTIFY_OK);

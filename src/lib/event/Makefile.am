@@ -11,7 +11,7 @@ distincludedir = $(includedir)/singularity
 
 noinst_LTLIBRARIES = libinternal.la
 libinternal_la_LIBADD = signal/libinternal.la cleanup/libinternal.la notify/libinternal.la
-libinternal_la_SOURCES = event.c ../../util/fork.c ../../util/registry.c ../../util/message.c ../../util/config_parser.c ../../util/privilege.c ../../util/util.c ../../util/file.c ../../util/setns.c ../../util/capability.c ../../util/suid.c ../../util/mount.c
+libinternal_la_SOURCES = event.c ../../util/fork.c ../../util/registry.c ../../util/message.c ../../util/config_parser.c ../../util/privilege.c ../../util/util.c ../../util/file.c ../../util/setns.c ../../util/capability.c ../../util/suid.c ../../util/mount.c ../../util/network.c
 libinternal_la_CFLAGS = $(AM_CFLAGS) # This fixes duplicate sources in library and progs
 
 distinclude_HEADERS = event.h

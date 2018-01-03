@@ -24,6 +24,8 @@ EXTRA_DIST = capability.c \
 			 privilege.h \
 			 proc_notify.c \
 			 proc_notify.h \
+			 network.c \
+			 network.h \
 			 registry.c \
 			 registry.h \
 			 securebits.h \

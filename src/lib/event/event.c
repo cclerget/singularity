@@ -29,19 +29,19 @@
 
 static int epfd = -1;
 
-static struct singularity_event_queue *seqhead = NULL;
-static struct singularity_event_queue *seqtail = NULL;
+static singularity_event_queue *seqhead = NULL;
+static singularity_event_queue *seqtail = NULL;
 
-int singularity_event_register(struct singularity_event *event) {
+int singularity_event_register(singularity_event *event) {
     struct epoll_event ee;
     char *name = event->name;
-    struct singularity_event_queue *seq;
+    singularity_event_queue *seq;
 
     if ( event == NULL ) {
         return(-1);
     }
 
-    seq = (struct singularity_event_queue *)malloc(sizeof(struct singularity_event_queue));
+    seq = (singularity_event_queue *)malloc(sizeof(struct singularity_event_queue));
     if ( seq == NULL ) {
         return(-1);
     }
@@ -97,18 +97,18 @@ int singularity_event_init(pid_t child) {
 
 int singularity_event_call(pid_t child) {
     struct epoll_event ev;
-    struct singularity_event *sev = NULL;
+    singularity_event *sev = NULL;
     int retval;
 
     if ( epoll_wait(epfd, &ev, 1, -1) < 0 ) {
         singularity_message(ERROR, "Failed to wait on event queue\n");
         return EVENT_FAIL(255);
     }
-    sev = (struct singularity_event *)ev.data.ptr;
+    sev = (singularity_event *)ev.data.ptr;
 
     retval = sev->call(child);
 
-    /* a call which return -1 is automatically discarded from event queue */
+    /* a call returning -1 is automatically discarded from event queue */
     if ( retval < 0 ) {
         if ( epoll_ctl(epfd, EPOLL_CTL_DEL, sev->fd, NULL) < 0 ) {
             singularity_message(ERROR, "Failed to remove %s event from event queue\n", sev->name);
@@ -121,12 +121,13 @@ int singularity_event_call(pid_t child) {
 }
 
 int singularity_event_exit(pid_t child) {
-    struct singularity_event_queue *current = seqhead;
+    int retval = 0;
+    singularity_event_queue *current = seqhead;
 
     for ( current = seqhead; current != NULL; current = current->next ) {
-        if ( current->event->exit && current->event->exit(child) < 0 ) {
-            singularity_message(ERROR, "Failed to call exit for %s event\n", current->event->name);
+        if ( current->event->exit ) {
+            retval += current->event->exit(child);
         }
     }
-    return(0);
+    return(retval);
 }
