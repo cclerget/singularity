@@ -59,18 +59,18 @@ int _singularity_runtime_autofs(void) {
         singularity_message(VERBOSE2, "Autofs bug fix for directory %s\n", source);
 
         if ( is_dir(source) < 0 ) {
-            singularity_message(WARNING, "Autofs bug path %s is not a directory\n", source);
+            singularity_message(WARNING, "Autofs bug path %s is not a directory: %s\n", source, strerror(errno));
             continue;
         }
 
         autofs_fd = open(source, O_RDONLY);
         if ( autofs_fd < 0 ) {
-            singularity_message(WARNING, "Failed to open directory '%s'\n", source);
+            singularity_message(WARNING, "Failed to open directory '%s': %s\n", source, strerror(errno));
             continue;
         }
 
         if ( fcntl(autofs_fd, F_SETFD, FD_CLOEXEC) != 0 ) {
-            singularity_message(WARNING, "Failed to set FD_CLOEXEC on directory '%s'\n", source);
+            singularity_message(WARNING, "Failed to set FD_CLOEXEC on directory '%s': %s\n", source, strerror(errno));
             continue;
         }
     }
