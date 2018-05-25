@@ -62,7 +62,6 @@ int stage_socket[2];
 
 #define SCONTAINER_STAGE1   1
 #define SCONTAINER_STAGE2   2
-#define SCONTAINER_STAGE3   3
 #define SMASTER             4
 #define RPC_SERVER          5
 
@@ -124,20 +123,7 @@ static void prepare_scontainer_stage(int stage) {
 
     singularity_message(DEBUG, "Entering in scontainer stage %d\n", stage);
 
-    if ( stage == 2 ) {
-        execute = SCONTAINER_STAGE2;
-        if ( config.mntPid == 0 ) {
-            stage_pid = fork();
-            if ( stage_pid == 0 ) {
-                execute = SCONTAINER_STAGE3;
-            }
-        }
-    }
-
-    if ( stage_pid < 0 ) {
-        singularity_message(ERROR, "Failed to spawn child: %s\n", strerror(errno));
-        exit(1);
-    }
+    execute = stage;
 
     if ( config.nsFlags & CLONE_NEWUSER || config.isSuid == 0 ) {
         return;
@@ -728,9 +714,22 @@ __attribute__((constructor)) static void init(void) {
                 exit(1);
             }
 
+            if ( mount(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0 ) {
+                singularity_message(ERROR, "Failed to propagate as SHARED: %s\n", strerror(errno));
+            }
+            if ( create_namespace(CLONE_NEWNS) < 0 ) {
+                singularity_message(ERROR, "Failed to create mount namespace: %s\n", strerror(errno));
+                exit(1);
+            }
+
             if ( mount(NULL, "/", NULL, MS_SHARED|MS_REC, NULL) < 0 ) {
                 singularity_message(ERROR, "Failed to propagate as SHARED: %s\n", strerror(errno));
             }
+        }
+        singularity_message(DEBUG, "Create RPC socketpair for communication between scontainer and RPC server\n");
+        if ( socketpair(AF_UNIX, SOCK_STREAM, 0, rpc_socket) < 0 ) {
+            singularity_message(ERROR, "Failed to create communication socket: %s\n", strerror(errno));
+            exit(1);
         }
         if ( config.pidPid ) {
             if ( enter_namespace(config.pidPid, CLONE_NEWPID) < 0 ) {
@@ -819,15 +818,19 @@ __attribute__((constructor)) static void init(void) {
             }
 #endif /* NS_CLONE_NEWCGROUP */
 
-            singularity_message(DEBUG, "Create RPC socketpair for communication between scontainer and RPC server\n");
-            if ( socketpair(AF_UNIX, SOCK_STREAM, 0, rpc_socket) < 0 ) {
-                singularity_message(ERROR, "Failed to create communication socket: %s\n", strerror(errno));
-                exit(1);
-            }
-
             close(stage_socket[0]);
+            close(rpc_socket[0]);
 
             if ( config.mntPid == 0 ) {
+                singularity_message(VERBOSE, "Create smaster mount namespace\n");
+                if ( create_namespace(CLONE_NEWNS) < 0 ) {
+                    singularity_message(ERROR, "Failed to create mount namespace: %s\n", strerror(errno));
+                    exit(1);
+                }
+
+                if ( mount(NULL, "/", NULL, MS_SLAVE|MS_REC, NULL) < 0 ) {
+                    singularity_message(ERROR, "Failed to propagate as SLAVE: %s\n", strerror(errno));
+                }
                 child = fork();
             } else {
                 singularity_message(VERBOSE, "Don't execute RPC server, joining instance\n");
@@ -837,11 +840,6 @@ __attribute__((constructor)) static void init(void) {
                 singularity_message(VERBOSE, "Spawn RPC server\n");
 
                 close(stage_socket[1]);
-                close(rpc_socket[0]);
-
-                if ( mount(NULL, "/", NULL, MS_SLAVE|MS_REC, NULL) < 0 ) {
-                    singularity_message(ERROR, "Failed to propagate as SLAVE: %s\n", strerror(errno));
-                }
 
                 /* return to host network namespace for network setup */
                 singularity_message(DEBUG, "Return to host network namespace\n");
@@ -878,6 +876,8 @@ __attribute__((constructor)) static void init(void) {
             singularity_message(VERBOSE, "Spawn smaster process\n");
 
             close(stage_socket[1]);
+            close(stage_socket[0]);
+            close(rpc_socket[1]);
 
             if ( config.mntPid != 0 ) {
                 int status;
@@ -891,14 +891,6 @@ __attribute__((constructor)) static void init(void) {
                 singularity_message(ERROR, "Child exit with unknown status\n");
                 exit(1);
             } else {
-                singularity_message(VERBOSE, "Create smaster mount namespace\n");
-                if ( create_namespace(CLONE_NEWNS) < 0 ) {
-                    singularity_message(ERROR, "Failed to create mount namespace: %s\n", strerror(errno));
-                    exit(1);
-                }
-                if ( mount(NULL, "/", NULL, MS_SLAVE|MS_REC, NULL) < 0 ) {
-                    singularity_message(ERROR, "Failed to propagate / mount as SLAVE: %s\n", strerror(errno));
-                }
                 execute = SMASTER;
                 return;
             }
@@ -921,13 +913,9 @@ int main(int argc, char **argv) {
         singularity_message(VERBOSE, "Execute scontainer stage 2\n");
         SContainer(2, stage_socket[1], rpc_socket[0], sruntime, &config, json_stdin);
         break;
-    case SCONTAINER_STAGE3:
-        singularity_message(VERBOSE, "Execute scontainer stage 3\n");
-        SContainer(3, stage_socket[1], rpc_socket[0], sruntime, &config, json_stdin);
-        break;
     case SMASTER:
         singularity_message(VERBOSE, "Execute smaster process\n");
-        SMaster(stage_socket[0], sruntime, &config, json_stdin);
+        SMaster(rpc_socket[0], sruntime, &config, json_stdin);
         break;
     case RPC_SERVER:
         singularity_message(VERBOSE, "Serve RPC requests\n");

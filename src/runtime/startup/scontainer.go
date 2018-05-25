@@ -14,7 +14,6 @@ package main
 import "C"
 
 import (
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -35,8 +34,6 @@ func bool2int(b bool) uint8 {
 // SContainer performs container startup
 //export SContainer
 func SContainer(stage C.int, socket C.int, rpcSocket C.int, sruntime *C.char, config *C.struct_cConfig, jsonC *C.char) {
-	rpcfd := rpcSocket
-
 	cconf := config
 
 	runtimeName := C.GoString(sruntime)
@@ -89,34 +86,12 @@ func SContainer(stage C.int, socket C.int, rpcSocket C.int, sruntime *C.char, co
 		os.Exit(0)
 	} else {
 		/* wait childs process */
-		rpcChild := make(chan os.Signal, 1)
+		rpcChild := make(chan os.Signal, 2)
 		signal.Notify(rpcChild, syscall.SIGCHLD)
 
-		rpcSocket := os.NewFile(uintptr(rpcfd), "rpc")
-
-		if stage == 3 {
-			conn, err := net.FileConn(rpcSocket)
-			rpcSocket.Close()
-			if err != nil {
-				sylog.Fatalf("socket communication error: %s\n", err)
-			}
-
-			// send "creating" status notification to smaster
-			if err := engine.CreateContainer(conn); err != nil {
-				sylog.Fatalf("%s\n", err)
-			}
-			// send "created" status notification to smaster
-			os.Exit(0)
-		}
-
-		if err := engine.PrestartProcess(); err != nil {
-			sylog.Fatalf("container setup failed: %s\n", err)
-		}
-
-		code := 0
-		rpcSocket.Close()
-
 		var status syscall.WaitStatus
+		code := 0
+
 	sigloop:
 		for {
 			if cconf.mntPid != 0 {
@@ -128,22 +103,24 @@ func SContainer(stage C.int, socket C.int, rpcSocket C.int, sruntime *C.char, co
 				 * waiting 2 childs signal there, since Linux can merge signals, we wait for all childs
 				 * when first SIGCHLD received
 				 */
-				for {
-					pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG|syscall.WUNTRACED, nil)
-					if err == syscall.ECHILD {
-						/* no more childs */
-						signal.Stop(rpcChild)
-						close(rpcChild)
-						break sigloop
-					}
-					if pid > 0 {
-						code += status.ExitStatus()
-					}
+				pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG|syscall.WUNTRACED, nil)
+				if err == syscall.ECHILD {
+					/* no more childs */
+					signal.Stop(rpcChild)
+					close(rpcChild)
+
+				} else if pid > 0 {
+					code += status.ExitStatus()
 				}
+				break sigloop
 			}
 		}
 		if code != 0 {
 			sylog.Fatalf("container setup failed\n")
+		}
+
+		if err := engine.PrestartProcess(); err != nil {
+			sylog.Fatalf("container setup failed: %s\n", err)
 		}
 
 		/* force close on exec on socket file descriptor to distinguish an exec success and error */
