@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -99,6 +100,9 @@ func create(engine *EngineOperations, rpcOps *client.RPC, pid int) error {
 		return err
 	}
 
+	if err := system.RunAfterTag(mount.SessionTag, c.setFuseMount); err != nil {
+		return err
+	}
 	if err := system.RunAfterTag(mount.LayerTag, c.addIdentityMount); err != nil {
 		return err
 	}
@@ -214,6 +218,82 @@ func create(engine *EngineOperations, rpcOps *client.RPC, pid int) error {
 	}
 
 	return nil
+}
+
+func (c *container) setFuseMount(system *mount.System) error {
+	mountDest := c.engine.EngineConfig.GetFuseMount()
+
+	if mountDest == "" {
+		sylog.Debugf("Ignoring FUSE mount, no requested")
+		return nil
+	}
+
+	privileged := false
+
+	// test if we need to escalate privileges
+	shell := filepath.Join(buildcfg.SYSCONFDIR, "singularity/fuse.sh")
+	cmd := exec.Command(shell)
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				if status.ExitStatus() == 1 {
+					sylog.Debugf("FUSE privileged run requested")
+					privileged = true
+				}
+			}
+		}
+	}
+
+	c.session.AddDir("/fuse")
+	if !privileged {
+		c.session.AddFile("/fuse.conf", []byte("user_allow_other\n"))
+	}
+
+	c.session.Update()
+
+	fusePath, _ := c.session.GetPath("/fuse")
+
+	if !privileged {
+		fuseConf, _ := c.session.GetPath("/fuse.conf")
+		if _, err := c.rpcOps.Mount(fuseConf, "/etc/fuse.conf", "", syscall.MS_BIND, ""); err != nil {
+			return err
+		}
+	}
+
+	uid := int(os.Getuid())
+
+	cmd = exec.Command(shell, fusePath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Pdeathsig = syscall.SIGINT
+
+	if privileged {
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: 0, Gid: 0}
+
+		if err := syscall.Setresuid(uid, 0, uid); err != nil {
+			return err
+		}
+	}
+
+	if err := cmd.Start(); err != nil {
+		if privileged {
+			if err := syscall.Setresuid(uid, uid, 0); err != nil {
+				return err
+			}
+		}
+		return err
+	}
+
+	if privileged {
+		if err := syscall.Setresuid(uid, uid, 0); err != nil {
+			return err
+		}
+	}
+
+	go func() {
+		cmd.Wait()
+	}()
+
+	return system.Points.AddBind(mount.OtherTag, fusePath, mountDest, syscall.MS_BIND)
 }
 
 func (c *container) setupWritableSIFImage(img *image.Image, overlayEnabled bool) error {
@@ -347,7 +427,7 @@ func (c *container) setupOverlayLayout(system *mount.System) (err error) {
 	}
 
 	c.sessionLayerType = "overlay"
-	return system.RunAfterTag(mount.LayerTag, c.setSlaveMount)
+	return system.RunBeforeTag(mount.DevTag, c.setSlaveMount)
 }
 
 // setupUnderlayLayout sets up the session with underlay "filesystem"
@@ -358,7 +438,7 @@ func (c *container) setupUnderlayLayout(system *mount.System) (err error) {
 	}
 
 	c.sessionLayerType = "underlay"
-	return system.RunAfterTag(mount.LayerTag, c.setSlaveMount)
+	return system.RunBeforeTag(mount.DevTag, c.setSlaveMount)
 }
 
 // setupDefaultLayout sets up the session without overlay or underlay
@@ -369,7 +449,7 @@ func (c *container) setupDefaultLayout(system *mount.System) (err error) {
 	}
 
 	c.sessionLayerType = "none"
-	return system.RunAfterTag(mount.RootfsTag, c.setSlaveMount)
+	return system.RunBeforeTag(mount.DevTag, c.setSlaveMount)
 }
 
 // isLayerEnabled returns whether or not overlay or underlay system

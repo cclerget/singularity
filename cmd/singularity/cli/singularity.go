@@ -235,6 +235,7 @@ var flagEnvFuncs = map[string]envHandle{
 	"security":      envStringNSlice,
 	"apply-cgroups": envStringNSlice,
 	"app":           envStringNSlice,
+	"fuse-mount":    envStringNSlice,
 
 	"boot":           envBool,
 	"fakeroot":       envBool,

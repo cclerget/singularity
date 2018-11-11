@@ -32,6 +32,7 @@ var (
 	Security        []string
 	CgroupsPath     string
 	ContainLibsPath []string
+	FuseMount       string
 
 	IsBoot          bool
 	IsFakeroot      bool
@@ -151,6 +152,10 @@ func initPathVars() {
 	actionFlags.StringSliceVar(&ContainLibsPath, "containlibs", []string{}, "")
 	actionFlags.Lookup("containlibs").Hidden = true
 	actionFlags.SetAnnotation("containlibs", "envkey", []string{"CONTAINLIBS"})
+
+	// --fuse-mount
+	actionFlags.StringVar(&FuseMount, "fuse-mount", "", "execute shell script and mount FUSE to the specified path in container")
+	actionFlags.SetAnnotation("fuse-mount", "envkey", []string{"FUSE_MOUNT"})
 }
 
 // initBoolVars initializes flags that take a boolean argument
@@ -204,7 +209,6 @@ func initBoolVars() {
 	actionFlags.BoolVar(&NoNvidia, "no-nv", false, "")
 	actionFlags.Lookup("no-nv").Hidden = true
 	actionFlags.SetAnnotation("no-nv", "envkey", []string{"NV_OFF", "NO_NV"})
-
 }
 
 // initNamespaceVars initializes flags that take toggle namespace support

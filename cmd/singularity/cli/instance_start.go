@@ -26,6 +26,7 @@ func init() {
 		"dns",
 		"drop-caps",
 		"fakeroot",
+		"fuse-mount",
 		"home",
 		"hostname",
 		"keep-privs",

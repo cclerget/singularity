@@ -87,6 +87,7 @@ func init() {
 		cmd.Flags().AddFlag(actionFlags.Lookup("containlibs"))
 		cmd.Flags().AddFlag(actionFlags.Lookup("no-nv"))
 		cmd.Flags().AddFlag(actionFlags.Lookup("nohttps"))
+		cmd.Flags().AddFlag(actionFlags.Lookup("fuse-mount"))
 		if cmd == ShellCmd {
 			cmd.Flags().AddFlag(actionFlags.Lookup("shell"))
 		}
@@ -389,6 +390,7 @@ func execStarter(cobraCmd *cobra.Command, image string, args []string, name stri
 	engineConfig.SetSecurity(Security)
 	engineConfig.SetShell(ShellPath)
 	engineConfig.SetLibrariesPath(ContainLibsPath)
+	engineConfig.SetFuseMount(FuseMount)
 
 	if ShellPath != "" {
 		generator.AddProcessEnv("SINGULARITY_SHELL", ShellPath)

@@ -94,6 +94,7 @@ type JSONConfig struct {
 	TargetUID     int           `json:"targetUID,omitempty"`
 	TargetGID     []int         `json:"targetGID,omitempty"`
 	LibrariesPath []string      `json:"librariesPath,omitempty"`
+	FuseMount     string        `json:"fuseMount",omitempty"`
 }
 
 // EngineConfig stores both the JSONConfig and the FileConfig
@@ -491,4 +492,14 @@ func (e *EngineConfig) SetLibrariesPath(libraries []string) {
 // /.singularity.d/libs directory
 func (e *EngineConfig) GetLibrariesPath() []string {
 	return e.JSON.LibrariesPath
+}
+
+// SetFuseMount sets fuse mount point
+func (e *EngineConfig) SetFuseMount(path string) {
+	e.JSON.FuseMount = path
+}
+
+// GetFuseMount returns fuse mount point
+func (e *EngineConfig) GetFuseMount() string {
+	return e.JSON.FuseMount
 }
