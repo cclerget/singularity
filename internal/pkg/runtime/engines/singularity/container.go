@@ -239,6 +239,8 @@ func (c *container) setFuseMount(system *mount.System) error {
 				if status.ExitStatus() == 1 {
 					sylog.Debugf("FUSE privileged run requested")
 					privileged = true
+				} else {
+					sylog.Debugf("FUSE run non privileged")
 				}
 			}
 		}
@@ -246,6 +248,7 @@ func (c *container) setFuseMount(system *mount.System) error {
 
 	c.session.AddDir("/fuse")
 	if !privileged {
+		sylog.Debugf("Create fuse.conf")
 		c.session.AddFile("/fuse.conf", []byte("user_allow_other\n"))
 	}
 
@@ -254,6 +257,7 @@ func (c *container) setFuseMount(system *mount.System) error {
 	fusePath, _ := c.session.GetPath("/fuse")
 
 	if !privileged {
+		sylog.Debugf("Bind mount fuse.conf")
 		fuseConf, _ := c.session.GetPath("/fuse.conf")
 		if _, err := c.rpcOps.Mount(fuseConf, "/etc/fuse.conf", "", syscall.MS_BIND, ""); err != nil {
 			return err
@@ -267,6 +271,7 @@ func (c *container) setFuseMount(system *mount.System) error {
 	cmd.SysProcAttr.Pdeathsig = syscall.SIGINT
 
 	if privileged {
+		sylog.Debugf("Escalate privileges")
 		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: 0, Gid: 0}
 
 		if err := syscall.Setresuid(uid, 0, uid); err != nil {
@@ -290,9 +295,11 @@ func (c *container) setFuseMount(system *mount.System) error {
 	}
 
 	go func() {
-		cmd.Wait()
+		err := cmd.Wait()
+		sylog.Debugf("FUSE binary exited: %s", err)
 	}()
 
+	sylog.Debugf("Add bind mount %s -> %s", fusePath, mountDest)
 	return system.Points.AddBind(mount.OtherTag, fusePath, mountDest, syscall.MS_BIND)
 }
 
