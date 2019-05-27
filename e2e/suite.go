@@ -19,10 +19,10 @@ import (
 	"github.com/sylabs/singularity/e2e/actions"
 	"github.com/sylabs/singularity/e2e/docker"
 	singularityenv "github.com/sylabs/singularity/e2e/env"
+	"github.com/sylabs/singularity/e2e/example"
 	"github.com/sylabs/singularity/e2e/help"
 	"github.com/sylabs/singularity/e2e/imgbuild"
 	"github.com/sylabs/singularity/e2e/instance"
-	singularitye2e "github.com/sylabs/singularity/e2e/internal/e2e"
 	"github.com/sylabs/singularity/e2e/pull"
 	"github.com/sylabs/singularity/e2e/remote"
 	version "github.com/sylabs/singularity/e2e/version"
@@ -91,8 +91,8 @@ func Run(t *testing.T) {
 	defer os.Remove(imagePath)
 
 	// Start registry for tests
-	singularitye2e.PrepRegistry(t)
-	defer singularitye2e.KillRegistry(t)
+	//singularitye2e.PrepRegistry(t)
+	//defer singularitye2e.KillRegistry(t)
 
 	// RunE2ETests by functionality
 
@@ -113,4 +113,6 @@ func Run(t *testing.T) {
 	t.Run("ENV", singularityenv.RunE2ETests)
 
 	t.Run("VERSION", version.RunE2ETests)
+
+	t.Run("EXAMPLE", example.RunE2ETests)
 }
