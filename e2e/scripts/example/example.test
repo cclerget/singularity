@@ -1,0 +1,102 @@
+
+source common.func
+
+test-singularity-generic() {
+    local name="$1"
+    local privileged="$2"
+    local command="$3"
+    local options="$4"
+    local img="$5"
+    local oldcwd="$PWD"
+
+    case "${options}" in
+        *-u*|*--userns*)
+            if ! check-namespace "user"; then
+                test-skip "${name}" "user namespace not supported"
+                return
+            fi
+            ;;
+    esac
+
+    # create test file/dir
+    local testfile="testSingularityExec.tmp"
+    local testdir="testSingularityExec.dir"
+
+    # workdir
+    if [ $privileged = "true" ]; then
+        local workdir=`mktmpdir 0755 root:root`
+        sudo mkdir -p ${workdir}/tmp/${testdir}
+        sudo touch ${workdir}/${testfile}
+
+        set sudo singularity ${command} ${options}
+    else
+        local workdir=`mktmpdir`
+        mkdir -p ${workdir}/tmp/${testdir}
+        touch ${workdir}/${testfile}
+
+        set singularity ${command} ${options}
+    fi
+
+    # go into workdir to not trigger error with user namespace execution
+    cd ${workdir}
+
+    expect-exit 1   "${name}/NoImage"             $@
+    expect-exit 0   "${name}/True"                $@ ${img} true
+    expect-exit 0   "${name}/TrueAbsPath"         $@ ${img} /bin/true
+    expect-exit 1   "${name}/False"               $@ ${img} false
+    expect-exit 1   "${name}/FalseAbsPath"        $@ ${img} /bin/false
+
+    # Scif apps tests
+    expect-exit 0   "${name}/ScifTestAppGood"     $@ --app testapp  ${img} testapp.sh
+    expect-exit 1   "${name}/ScifTestAppBad"      $@ --app fakeapp  ${img} testapp.sh
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@                ${img} test -d /scif
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@                ${img} test -d /scif/apps
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@                ${img} test -d /scif/data
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@                ${img} test -d /scif/apps/foo
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@                ${img} test -d /scif/apps/bar
+
+    # blocked by issue [scif-apps] Files created at install step fall into an unexpected path #2404
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@ ${img} test -f /scif/apps/foo/filefoo.exec
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@ ${img} test -f /scif/apps/bar/filebar.exec
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@ ${img} test -d /scif/data/foo/output
+    expect-exit 0   "${name}/ScifTestfolderOrg"   $@ ${img} test -d /scif/data/foo/input
+
+    # --workdir
+    expect-exit 0   "${name}/WorkdirContain"      $@ --contain --workdir ${workdir} ${img} test -d /tmp/${testdir}
+    expect-exit 1   "${name}/Workdir"             $@ --workdir ${workdir}           ${img} test -d /tmp/${testdir}
+
+    # --home
+    expect-exit 0   "${name}/Home"                $@ --home ${workdir}                    ${img} test -f ${workdir}/${testfile}
+    expect-exit 1   "${name}/NoHome"              $@ --home ${workdir}:/home --no-home    ${img} test -f /home/${testfile}
+    expect-exit 0   "${name}/HomePath"            $@ --home ${workdir}:/home              ${img} test -f /home/${testfile}
+    expect-exit 0   "${name}/HomeTmp"             $@ --home /tmp                          ${img} true
+    expect-exit 0   "${name}/HomeTmpExplicit"     $@ --home /tmp:/home                    ${img} true
+
+    expect-exit 0   "${name}/UserBind"            $@ --bind ${workdir}:/mnt         ${img} test -f /mnt/${testfile}
+
+    stdout-contains "${name}/PwdGood" "/etc"      $@ --pwd /etc                     ${img} pwd
+
+    cd ${oldcwd}
+}
+
+image=`get-test-image`
+
+sandbox_unpriv=`mktmpdir`
+run-command singularity build -F -s ${sandbox_unpriv} ${image}
+
+sandbox_priv=`mktmpdir 0700 root:root`
+run-command sudo singularity build -F -s ${sandbox_priv} ${image}
+
+########################    NAME                        RUN-PRIVILEGED      COMMAND     CUSTOM_OPTIONS  IMAGE
+test-singularity-generic    "Exec"                      false               exec        ""              ${image}
+test-singularity-generic    "ExecPriv"                  true                exec        ""              ${image}
+test-singularity-generic    "Run"                       false               run         ""              ${image}
+test-singularity-generic    "RunPriv"                   true                run         ""              ${image}
+test-singularity-generic    "ExecUsernsWithSIF"         false               exec        "-u"            ${image}
+test-singularity-generic    "ExecUsernsPrivWithSIF"     true                exec        "-u"            ${image}
+test-singularity-generic    "RunUsernsWithSIF"          false               run         "-u"            ${image}
+test-singularity-generic    "RunUsernsPrivWithSIF"      true                run         "-u"            ${image}
+test-singularity-generic    "ExecUsernsWithSandbox"     false               exec        "-u"            ${sandbox_unpriv}
+test-singularity-generic    "ExecUsernsPrivWithSandbox" true                exec        "-u"            ${sandbox_priv}
+test-singularity-generic    "RunUsernsWithSandbox"      false               run         "-u"            ${sandbox_unpriv}
+test-singularity-generic    "RunUsernsPrivWithSandbox"  true                run         "-u"            ${sandbox_priv}
