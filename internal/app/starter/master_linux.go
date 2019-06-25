@@ -119,8 +119,8 @@ func Master(rpcSocket, masterSocket int, isInstance bool, containerPid int, engi
 
 	fatalChan := make(chan error, 1)
 
-	if engine == nil {
-		fatalChan <- fmt.Errorf("undefined engine")
+	if engine == nil || containerPid < 0 {
+		fatalChan <- fmt.Errorf("invalid parameter(s)")
 		return
 	}
 

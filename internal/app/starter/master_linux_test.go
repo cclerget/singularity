@@ -78,10 +78,10 @@ func TestDoMasterThread(t *testing.T) {
 	tests := []struct {
 		name         string
 		masterSocket int
-		isInstance   bool
 		containerPid int
 		ppid         int
 		engine       *engines.Engine
+		isInstance   bool
 		shallPass    bool
 	}{
 		{
@@ -132,13 +132,15 @@ func TestMaster(t *testing.T) {
 	test.DropPrivilege(t)
 	defer test.ResetPrivilege(t)
 
+	var fakeEngine engines.Engine
+
 	tests := []struct {
 		name         string
 		rpcSocket    int
 		masterSocket int
-		isInstance   bool
 		pid          int
 		engine       *engines.Engine
+		isInstance   bool
 		shallPass    bool
 	}{
 		{
@@ -148,6 +150,15 @@ func TestMaster(t *testing.T) {
 			isInstance:   false,
 			pid:          -1,
 			engine:       nil,
+			shallPass:    false,
+		},
+		{
+			name:         "fake engine",
+			rpcSocket:    -1,
+			masterSocket: -1,
+			isInstance:   false,
+			pid:          -1,
+			engine:       &fakeEngine,
 			shallPass:    false,
 		},
 	}
