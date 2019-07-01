@@ -20,7 +20,7 @@ import (
 )
 
 func createContainer(rpcSocket int, containerPid int, engine *engines.Engine, fatalChan chan error) {
-	comm := os.NewFile(uintptr(rpcSocket), "socket")
+	comm := os.NewFile(uintptr(rpcSocket), "rpc-socket")
 	if comm == nil {
 		fatalChan <- fmt.Errorf("bad RPC socket file descriptor")
 		return
