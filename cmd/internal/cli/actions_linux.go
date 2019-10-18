@@ -34,6 +34,7 @@ import (
 	singularityConfig "github.com/sylabs/singularity/pkg/runtime/engine/singularity/config"
 	"github.com/sylabs/singularity/pkg/util/crypt"
 	"github.com/sylabs/singularity/pkg/util/gpu"
+	"github.com/sylabs/singularity/pkg/util/fs/proc"
 	"github.com/sylabs/singularity/pkg/util/namespaces"
 )
 
@@ -92,6 +93,27 @@ func convertImage(filename string, unsquashfsPath string) (string, error) {
 	}
 
 	return dir, err
+}
+
+// checkHidepid checks if hidepid is set on /proc mount point, when this
+// option is an instance started with setuid workflow could not even be
+// joined later or stopped correctly.
+func hidepidProc() bool {
+	entries, err := proc.GetMountInfoEntry("/proc/self/mountinfo")
+	if err != nil {
+		sylog.Warningf("while reading /proc/self/mountinfo: %s", err)
+		return false
+	}
+	for _, e := range entries {
+		if e.Point == "/proc" {
+			for _, o := range e.SuperOptions {
+				if strings.HasPrefix(o, "hidepid=") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // TODO: Let's stick this in another file so that that CLI is just CLI
@@ -421,6 +443,10 @@ func execStarter(cobraCmd *cobra.Command, image string, args []string, name stri
 		IpcNamespace = true
 		engineConfig.SetInstance(true)
 		engineConfig.SetBootInstance(IsBoot)
+
+		if useSuid && !UserNamespace && hidepidProc() {
+			sylog.Fatalf("hidepid option set on /proc mount, require 'hidepid=0' to start instance with setuid workflow")
+		}
 
 		_, err := instance.Get(name, instance.SingSubDir)
 		if err == nil {
