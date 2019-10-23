@@ -6,13 +6,11 @@
 package singularity
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -32,9 +30,11 @@ import (
 	"github.com/sylabs/singularity/internal/pkg/util/user"
 	"github.com/sylabs/singularity/pkg/image"
 	"github.com/sylabs/singularity/pkg/runtime/engine/config"
+	singularity "github.com/sylabs/singularity/pkg/runtime/engine/singularity/config"
 	singularityConfig "github.com/sylabs/singularity/pkg/runtime/engine/singularity/config"
 	"github.com/sylabs/singularity/pkg/util/capabilities"
 	"github.com/sylabs/singularity/pkg/util/fs/proc"
+	usocket "github.com/sylabs/singularity/pkg/util/unix"
 	"golang.org/x/sys/unix"
 )
 
@@ -596,6 +596,99 @@ func (e *EngineOperations) prepareContainerConfig(starterConfig *starter.Config)
 	return e.prepareAutofs(starterConfig)
 }
 
+func (e *EngineOperations) setNamespaceJoin(sc *starter.Config, ic *singularity.EngineConfig, file *instance.File) error {
+	addr := fmt.Sprintf("@%s/%s/%d/%d", file.User, file.Name, file.PPid, file.Pid)
+	c, err := net.Dial("unix", addr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to instance socket %s", addr)
+	}
+
+	gid := uint32(os.Getgid())
+	uid := uint32(os.Getuid())
+	if sc.GetIsSUID() {
+		uid = 0
+	}
+
+	uconn := c.(*net.UnixConn)
+
+	cred, err := usocket.PeerCred(uconn)
+	if err != nil {
+		return fmt.Errorf("failed to get socket peer credentials: %s", err)
+	}
+	if cred.Uid != uid || cred.Gid != gid {
+		return fmt.Errorf("attempt to join wrong instance process %d with UID/GID %d/%d", cred.Pid, cred.Uid, cred.Gid)
+	}
+
+	buf, fds, err := usocket.RecvFds(uconn)
+	if err != nil {
+		return err
+	}
+
+	list := strings.Split(string(buf), ",")
+	if len(fds) != len(list) {
+		return fmt.Errorf("got %d file descriptor instead of %d", len(list), len(fds))
+	}
+	if len(fds) == 0 {
+		return fmt.Errorf("no file descriptor sent by instance")
+	}
+
+	for i, fd := range fds {
+		nsType := specs.LinuxNamespaceType(list[i])
+
+		ns, ok := nsProcName[nsType]
+		if !ok {
+			continue
+		}
+
+		p := fmt.Sprintf("/proc/self/ns/%s", ns)
+		fi, err := mainthread.Stat(p)
+		if err != nil {
+			return fmt.Errorf("could not get file information for %s: %s", p, err)
+		}
+
+		var nst syscall.Stat_t
+		if err := syscall.Fstat(fd, &nst); err != nil {
+			return fmt.Errorf("could not get file information for file descriptor %d: %s", fd, err)
+		}
+
+		sst := fi.Sys().(*syscall.Stat_t)
+		join := sst.Dev != nst.Dev || sst.Ino != nst.Ino
+
+		for n := range ic.OciConfig.Linux.Namespaces {
+			if i == 0 {
+				ic.OciConfig.Linux.Namespaces[n].Path = ""
+			}
+
+			t := ic.OciConfig.Linux.Namespaces[n].Type
+			if _, ok := nsProcName[t]; !ok {
+				continue
+			}
+			if join && t == nsType {
+				sylog.Debugf("Will join namespace %s", nsType)
+				ic.OciConfig.Linux.Namespaces[n].Path = fmt.Sprintf("/proc/self/fd/%d", fd)
+				sc.KeepFileDescriptor(fd)
+				break
+			}
+		}
+
+		if !join {
+			syscall.Close(fd)
+		}
+	}
+
+	// store namespace paths in starter configuration that will
+	// be passed via a shared memory area and used by starter C code
+	// once this process exit
+	if err := sc.SetNsPathFromSpec(ic.OciConfig.Linux.Namespaces); err != nil {
+		return err
+	}
+
+	// tell starter that we are joining an instance
+	sc.SetNamespaceJoinOnly(true)
+
+	return nil
+}
+
 // prepareInstanceJoinConfig is responsible for getting and
 // applying configuration to join a running instance.
 func (e *EngineOperations) prepareInstanceJoinConfig(starterConfig *starter.Config) error {
@@ -606,7 +699,6 @@ func (e *EngineOperations) prepareInstanceJoinConfig(starterConfig *starter.Conf
 	}
 
 	uid := os.Getuid()
-	gid := os.Getgid()
 	suidRequired := uid != 0 && !file.UserNs
 
 	// basic checks:
@@ -644,147 +736,7 @@ func (e *EngineOperations) prepareInstanceJoinConfig(starterConfig *starter.Conf
 		instanceEngineConfig.OciConfig.Linux = &specs.Linux{}
 	}
 
-	// go into /proc/<pid> directory to open namespaces inodes
-	// relative to current working directory while joining
-	// namespaces within C starter code as changing directory
-	// here will also affects starter process thanks to
-	// SetWorkingDirectoryFd call.
-	// Additionally it would prevent TOCTOU races and symlink
-	// usage.
-	// And if instance process exits during checks or while
-	// entering in namespace, we would get a "no such process"
-	// error because current working directory would point to a
-	// deleted inode: "/proc/self/cwd -> /proc/<pid> (deleted)"
-	path := filepath.Join("/proc", strconv.Itoa(file.Pid))
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
-	if err != nil {
-		return fmt.Errorf("could not open proc directory %s: %s", path, err)
-	}
-	if err := mainthread.Fchdir(fd); err != nil {
-		return err
-	}
-	// will set starter (via fchdir too) in the same proc directory
-	// in order to open namespace inodes with relative paths for the
-	// right process
-	starterConfig.SetWorkingDirectoryFd(fd)
-
-	// enforce checks while joining an instance process with SUID workflow
-	// since instance file is stored in user home directory, we can't trust
-	// its content when using SUID workflow
-	if suidRequired {
-		// check if instance is running with user namespace enabled
-		// by reading /proc/pid/uid_map
-		_, hid, err := proc.ReadIDMap("uid_map")
-
-		// if the error returned is "no such file or directory" it means
-		// that user namespaces are not supported, just skip this check
-		if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to read user namespace mapping: %s", err)
-		} else if err == nil && hid > 0 {
-			// a host uid greater than 0 means user namespace is in use for this process
-			return fmt.Errorf("trying to join an instance running with user namespace enabled")
-		}
-
-		// read "/proc/pid/root" link of instance process must return
-		// a permission denied error.
-		// This is the "sinit" process (PID 1 in container) and it inherited
-		// setuid bit, so most of "/proc/pid" entries are owned by root:root
-		// like "/proc/pid/root" link even if the process has dropped all
-		// privileges and run with user UID/GID. So we expect a "permission denied"
-		// error when reading link.
-		if _, err := mainthread.Readlink("root"); !os.IsPermission(err) {
-			return fmt.Errorf("trying to join a wrong instance process")
-		}
-		// Since we could be tricked to join namespaces of a root owned process,
-		// we will get UID/GID information of task directory to be sure it belongs
-		// to the user currently joining the instance. Also ensure that a user won't
-		// be able to join other user's instances.
-		fi, err := os.Stat("task")
-		if err != nil {
-			return fmt.Errorf("error while getting information for instance task directory: %s", err)
-		}
-		st := fi.Sys().(*syscall.Stat_t)
-		if st.Uid != uint32(uid) || st.Gid != uint32(gid) {
-			return fmt.Errorf("instance process owned by %d:%d instead of %d:%d", st.Uid, st.Gid, uid, gid)
-		}
-
-		ppid := -1
-
-		// read "/proc/pid/status" to check if instance process
-		// is neither orphaned or faked
-		f, err := os.Open("status")
-		if err != nil {
-			return fmt.Errorf("could not open status: %s", err)
-		}
-
-		for s := bufio.NewScanner(f); s.Scan(); {
-			if n, _ := fmt.Sscanf(s.Text(), "PPid:\t%d", &ppid); n == 1 {
-				break
-			}
-		}
-		f.Close()
-
-		// check that Ppid/Pid read from instance file are "somewhat" valid
-		// processes
-		if ppid <= 1 || ppid != file.PPid {
-			return fmt.Errorf("orphaned (or faked) instance process")
-		}
-
-		// read "/proc/ppid/root" link of parent instance process must return
-		// a permission denied error (same logic than "sinit" process).
-		// Also we don't use absolute path because we want to return an error
-		// if current working directory is deleted meaning that instance process
-		// exited.
-		path := filepath.Join("..", strconv.Itoa(file.PPid), "root")
-		if _, err := mainthread.Readlink(path); !os.IsPermission(err) {
-			return fmt.Errorf("trying to join a wrong instance process")
-		}
-		// "/proc/ppid/task" directory must be owned by user UID/GID
-		path = filepath.Join("..", strconv.Itoa(file.PPid), "task")
-		fi, err = os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("error while getting information for parent task directory: %s", err)
-		}
-		st = fi.Sys().(*syscall.Stat_t)
-		if st.Uid != uint32(uid) || st.Gid != uint32(gid) {
-			return fmt.Errorf("parent instance process owned by %d:%d instead of %d:%d", st.Uid, st.Gid, uid, gid)
-		}
-	}
-
-	path, err = filepath.Abs("comm")
-	if err != nil {
-		return fmt.Errorf("failed to determine absolute path for comm: %s", err)
-	}
-
-	// we must read "sinit\n"
-	b, err := ioutil.ReadFile("comm")
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %s", path, err)
-	}
-	// check that we are currently joining sinit process
-	if "sinit" != strings.Trim(string(b), "\n") {
-		return fmt.Errorf("sinit not found in %s, wrong instance process", path)
-	}
-
-	// tell starter that we are joining an instance
-	starterConfig.SetNamespaceJoinOnly(true)
-
-	// update namespaces path relative to /proc/<pid>
-	// since starter process is in /proc/<pid> directory
-	for i := range instanceEngineConfig.OciConfig.Linux.Namespaces {
-		// ignore unknown namespaces
-		t := instanceEngineConfig.OciConfig.Linux.Namespaces[i].Type
-		if _, ok := nsProcName[t]; !ok {
-			continue
-		}
-		// set namespace relative path
-		instanceEngineConfig.OciConfig.Linux.Namespaces[i].Path = filepath.Join("ns", nsProcName[t])
-	}
-
-	// store namespace paths in starter configuration that will
-	// be passed via a shared memory area and used by starter C code
-	// once this process exit
-	if err := starterConfig.SetNsPathFromSpec(instanceEngineConfig.OciConfig.Linux.Namespaces); err != nil {
+	if err := e.setNamespaceJoin(starterConfig, instanceEngineConfig, file); err != nil {
 		return err
 	}
 

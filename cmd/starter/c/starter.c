@@ -342,10 +342,14 @@ static int enter_namespace(char *nspath, int nstype) {
         return(-1);
     }
 
-    debugf("Opening namespace file %s\n", nspath);
-    ns_fd = open(nspath, O_RDONLY);
-    if ( ns_fd < 0 ) {
-        return(-1);
+    if ( sscanf(nspath, "/proc/self/fd/%d", &ns_fd) != 1 ) {
+        debugf("Opening namespace file %s\n", nspath);
+        ns_fd = open(nspath, O_RDONLY);
+        if ( ns_fd < 0 ) {
+            return(-1);
+        }
+    } else {
+        debugf("Using namespace file descriptor %s\n", nspath);
     }
 
     if ( setns(ns_fd, nstype) < 0 ) {

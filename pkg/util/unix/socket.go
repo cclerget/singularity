@@ -6,6 +6,7 @@
 package unix
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -85,4 +86,46 @@ func WriteSocket(path string, data []byte) error {
 	}
 
 	return nil
+}
+
+func PeerCred(conn *net.UnixConn) (*syscall.Ucred, error) {
+	f, err := conn.File()
+	if err != nil {
+		return nil, fmt.Errorf("can't get file descriptor from unix socket: %s", err)
+	}
+	defer f.Close()
+
+	return syscall.GetsockoptUcred(int(f.Fd()), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+}
+
+func SendFds(conn *net.UnixConn, buf []byte, fds []int) error {
+	rights := syscall.UnixRights(fds...)
+	_, _, err := conn.WriteMsgUnix(buf, rights, nil)
+	return err
+}
+
+func RecvFds(conn *net.UnixConn) ([]byte, []int, error) {
+	oob := make([]byte, 4096)
+	buf := make([]byte, 4096)
+
+	_, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
+	if err != nil {
+		return nil, nil, fmt.Errorf("while reading unix socket: %s", err)
+	}
+
+	scms, err := syscall.ParseSocketControlMessage(oob[:oobn])
+	if err != nil {
+		return nil, nil, fmt.Errorf("while reading from socket: %s", err)
+	}
+	if len(scms) != 1 {
+		return nil, nil, fmt.Errorf("no control message found on unix socket")
+	}
+
+	scm := scms[0]
+	fds, err := syscall.ParseUnixRights(&scm)
+	if err != nil {
+		return nil, nil, fmt.Errorf("while getting file descriptors: %s", err)
+	}
+
+	return bytes.Trim(buf, "\x00"), fds, nil
 }

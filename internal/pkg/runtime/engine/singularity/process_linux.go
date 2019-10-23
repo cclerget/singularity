@@ -28,8 +28,11 @@ import (
 	"github.com/sylabs/singularity/internal/pkg/instance"
 	"github.com/sylabs/singularity/internal/pkg/security"
 	"github.com/sylabs/singularity/internal/pkg/sylog"
+	"github.com/sylabs/singularity/internal/pkg/util/priv"
 	"github.com/sylabs/singularity/internal/pkg/util/user"
 	singularity "github.com/sylabs/singularity/pkg/runtime/engine/singularity/config"
+	"github.com/sylabs/singularity/pkg/util/namespaces"
+	"github.com/sylabs/singularity/pkg/util/unix"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -339,7 +342,7 @@ func (e *EngineOperations) PostStartProcess(ctx context.Context, pid int) error 
 		// which will determine if a namespace needs to be joined by
 		// comparing namespace inodes
 		path := fmt.Sprintf("/proc/%d/ns", pid)
-		namespaces := []struct {
+		nsList := []struct {
 			nstype string
 			ns     specs.LinuxNamespaceType
 		}{
@@ -350,7 +353,7 @@ func (e *EngineOperations) PostStartProcess(ctx context.Context, pid int) error 
 			{"cgroup", specs.CgroupNamespace},
 			{"net", specs.NetworkNamespace},
 		}
-		for _, n := range namespaces {
+		for _, n := range nsList {
 			nspath := filepath.Join(path, n.nstype)
 			e.EngineConfig.OciConfig.AddOrReplaceLinuxNamespace(string(n.ns), nspath)
 		}
@@ -361,6 +364,13 @@ func (e *EngineOperations) PostStartProcess(ctx context.Context, pid int) error 
 				file.UserNs = true
 				break
 			}
+		}
+
+		insideUserNs, _ := namespaces.IsInsideUserNamespace(os.Getpid())
+		if !file.UserNs && insideUserNs {
+			file.UserNs = true
+			nspath := filepath.Join(path, "user")
+			e.EngineConfig.OciConfig.AddOrReplaceLinuxNamespace(specs.UserNamespace, nspath)
 		}
 
 		// grab configuration to store in instance file
@@ -378,6 +388,8 @@ func (e *EngineOperations) PostStartProcess(ctx context.Context, pid int) error 
 		if err := syscall.Kill(os.Getppid(), syscall.SIGUSR1); err != nil {
 			return err
 		}
+
+		go e.instanceSocket(ctx, file)
 
 		return err
 	}
@@ -595,4 +607,76 @@ func (e *EngineOperations) getIP() (string, error) {
 	sylog.Warningf("Could not get ipv6 %s", err)
 
 	return "", errors.New("could not get ip")
+}
+
+func serveInstanceConn(client *net.UnixConn, userNs bool, nsFd map[string]int) error {
+	cred, err := unix.PeerCred(client)
+	if err != nil {
+		return fmt.Errorf("cannot get peer credential: %s", err)
+	}
+
+	// check socket peer credentials
+	if cred.Uid != uint32(os.Getuid()) || cred.Gid != uint32(os.Getgid()) {
+		return fmt.Errorf("connection attempt from process %d with UID %d", cred.Pid, cred.Uid)
+	}
+
+	var fds []int
+	var list []string
+
+	for n, f := range nsFd {
+		fds = append(fds, f)
+		list = append(list, n)
+	}
+
+	buf := []byte(strings.Join(list, ","))
+	return unix.SendFds(client, buf, fds)
+}
+
+func (e *EngineOperations) instanceSocket(ctx context.Context, file *instance.File) {
+	nsFd := make(map[string]int)
+
+	if !file.UserNs {
+		if err := priv.Escalate(); err != nil {
+			sylog.Errorf("could not serve instance socket, privileges escalation failed: %s", err)
+			return
+		}
+	}
+
+	addr := fmt.Sprintf("@%s/%s/%d/%d", file.User, file.Name, file.PPid, file.Pid)
+
+	l, err := net.Listen("unix", addr)
+	if err != nil {
+		priv.Drop()
+		sylog.Errorf("could not serve instance socket, listen failed: %s", err)
+		return
+	}
+	defer l.Close()
+
+	for _, ns := range e.EngineConfig.OciConfig.Linux.Namespaces {
+		f, err := os.Open(ns.Path)
+		if err != nil {
+			priv.Drop()
+			sylog.Errorf("could not pass namespace file descriptor, while opening %s: %s", ns.Path, err)
+			return
+		}
+		nsFd[string(ns.Type)] = int(f.Fd())
+	}
+
+	if !file.UserNs {
+		priv.Drop()
+	}
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			sylog.Errorf("while serving instance socket, accept failed: %s", err)
+			return
+		}
+		c := conn.(*net.UnixConn)
+		err = serveInstanceConn(c, file.UserNs, nsFd)
+		c.Close()
+		if err != nil {
+			sylog.Errorf("while serving on instance socket: %s", err)
+		}
+	}
 }
