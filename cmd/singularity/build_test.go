@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/sylabs/singularity/internal/pkg/client/cache"
 	"github.com/sylabs/singularity/internal/pkg/test"
 	testCache "github.com/sylabs/singularity/internal/pkg/test/tool/cache"
@@ -232,9 +233,9 @@ func TestBuild(t *testing.T) {
 }
 
 func TestMultipleBuilds(t *testing.T) {
-	imagePath1 := path.Join(testDir, "container1")
-	imagePath2 := path.Join(testDir, "container2")
-	imagePath3 := path.Join(testDir, "container3")
+	imagePath1 := path.Join(testDir, uuid.NewV4().String())
+	imagePath2 := path.Join(testDir, uuid.NewV4().String())
+	imagePath3 := path.Join(testDir, uuid.NewV4().String())
 
 	liDefFile := prepareDefFile(DefFileDetail{
 		Bootstrap: "localimage",
