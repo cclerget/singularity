@@ -1,4 +1,4 @@
-module github.com/sylabs/singularity/v3
+module github.com/sylabs/singularity/v1
 
 go 1.13
 
